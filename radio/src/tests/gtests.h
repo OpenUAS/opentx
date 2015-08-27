@@ -15,6 +15,13 @@ extern uint16_t anaInValues[NUM_STICKS+NUM_POTS];
 
 void doMixerCalculations();
 
+#if defined(PCBTARANIS)
+#define RADIO_RESET() \
+  g_eeGeneral.switchConfig = 0x00007bff
+#else
+  #define RADIO_RESET()
+#endif
+
 inline void MODEL_RESET()
 {
   memset(&g_model, 0, sizeof(g_model));
@@ -46,9 +53,12 @@ inline void TELEMETRY_RESET()
   memclear(&frskyData, sizeof(frskyData));
   TELEMETRY_RSSI() = 100;
 #endif
+#if defined(CPUARM) && defined(FRSKY)
+  for (int i=0; i<MAX_SENSORS; i++) {
+    telemetryItems[i].clear();
+  }
+#endif
 }
-
-void MIXER_RESET();
 
 bool checkScreenshot(QString test);
 

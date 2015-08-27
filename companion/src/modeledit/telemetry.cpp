@@ -29,20 +29,10 @@ TelemetryAnalog::TelemetryAnalog(QWidget *parent, FrSkyChannelData & analog, Mod
   update();
 
   ui->UnitCB->setCurrentIndex(analog.type);
-  if (!IS_TARANIS(firmware->getBoard())) {
-    ui->alarm1LevelCB->setCurrentIndex(analog.alarms[0].level);
-    ui->alarm1GreaterCB->setCurrentIndex(analog.alarms[0].greater);
-    ui->alarm2LevelCB->setCurrentIndex(analog.alarms[1].level);
-    ui->alarm2GreaterCB->setCurrentIndex(analog.alarms[1].greater);
-  }
-  else {
-    ui->alarm1LevelCB->hide();
-    ui->alarm2LevelCB->hide();
-    ui->alarm1GreaterCB->hide();
-    ui->alarm2GreaterCB->hide();
-    ui->alarm1Label->setText(tr("Low Alarm"));
-    ui->alarm2Label->setText(tr("Critical Alarm"));
-  }
+  ui->alarm1LevelCB->setCurrentIndex(analog.alarms[0].level);
+  ui->alarm1GreaterCB->setCurrentIndex(analog.alarms[0].greater);
+  ui->alarm2LevelCB->setCurrentIndex(analog.alarms[1].level);
+  ui->alarm2GreaterCB->setCurrentIndex(analog.alarms[1].greater);
 
   if (!(firmware->getCapability(Telemetry) & TM_HASOFFSET)) {
     ui->CalibSB->hide();
@@ -330,31 +320,33 @@ TelemetryCustomScreen::TelemetryCustomScreen(QWidget *parent, ModelData & model,
 
   disableMouseScrolling();
 
+  lock = true;
+  if (IS_ARM(firmware->getBoard()))
+    ui->screenType->addItem(tr("None"), TELEMETRY_SCREEN_NONE);
+  ui->screenType->addItem(tr("Numbers"), TELEMETRY_SCREEN_NUMBERS);
+  ui->screenType->addItem(tr("Bars"), TELEMETRY_SCREEN_BARS);
+  if (IS_TARANIS(firmware->getBoard()))
+    ui->screenType->addItem(tr("Script"), TELEMETRY_SCREEN_SCRIPT);
+  ui->screenType->setField(screen.type, this);
+  lock = false;
+
+  if (IS_TARANIS(firmware->getBoard())) {
+    QSet<QString> scriptsSet = getFilesSet(g.profile[g.id()].sdPath() + "/SCRIPTS/TELEMETRY", QStringList() << "*.lua", 8);
+    populateFileComboBox(ui->scriptName, scriptsSet, screen.body.script.filename);
+    connect(ui->scriptName, SIGNAL(currentIndexChanged(int)), this, SLOT(scriptNameEdited()));
+    connect(ui->scriptName, SIGNAL(editTextChanged ( const QString)), this, SLOT(scriptNameEdited()));
+  }
+
   update();
 }
 
-void TelemetryCustomScreen::populateTelemetrySourceCB(QComboBox *b, unsigned int value, bool last, int hubproto)
+void TelemetryCustomScreen::populateTelemetrySourceCB(QComboBox * b, RawSource & source, bool last)
 {
-  b->clear();
-
   if (IS_ARM(firmware->getBoard())) {
-    // TODO
+    populateSourceCB(b, source, generalSettings, model, POPULATE_NONE | POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
   }
   else {
-    b->addItem(RawSource(SOURCE_TYPE_NONE, 0).toString(model));
-
-    for (unsigned int i = 0; i < (last ? TELEMETRY_SOURCES_STATUS_COUNT : TELEMETRY_SOURCES_DISPLAY_COUNT); i++) {
-      b->addItem(RawSource(SOURCE_TYPE_TELEMETRY, i).toString(model));
-      if (!firmware->isTelemetrySourceAvailable(i)) {
-        // disable item
-        QModelIndex index = b->model()->index(i+1, 0);
-        QVariant v(0);
-        b->model()->setData(index, v, Qt::UserRole - 1);
-      }
-    }
-
-    b->setCurrentIndex(value);
-    b->setMaxVisibleItems(10);
+    populateSourceCB(b, source, generalSettings, model, POPULATE_NONE | POPULATE_TELEMETRY | (last ? POPULATE_TELEMETRYEXT : 0));
   }
 }
 
@@ -367,18 +359,18 @@ void TelemetryCustomScreen::update()
 {
   lock = true;
 
-  ui->screenType->setCurrentIndex(screen.type);
+  ui->scriptName->setVisible(screen.type == TELEMETRY_SCREEN_SCRIPT);
   ui->screenNums->setVisible(screen.type == TELEMETRY_SCREEN_NUMBERS);
   ui->screenBars->setVisible(screen.type == TELEMETRY_SCREEN_BARS);
 
   for (int l=0; l<4; l++) {
     for (int c=0; c<firmware->getCapability(TelemetryCustomScreensFieldsPerLine); c++) {
-      populateTelemetrySourceCB(fieldsCB[l][c], screen.body.lines[l].source[c], l==3, model->frsky.usrProto);
+      populateTelemetrySourceCB(fieldsCB[l][c], screen.body.lines[l].source[c], l==3);
     }
   }
 
   for (int l=0; l<4; l++) {
-    populateTelemetrySourceCB(barsCB[l], screen.body.bars[l].source, false, model->frsky.usrProto);
+    populateTelemetrySourceCB(barsCB[l], screen.body.bars[l].source);
   }
 
   if (screen.type == TELEMETRY_SCREEN_BARS) {
@@ -394,14 +386,15 @@ void TelemetryCustomScreen::updateBar(int line)
 {
   lock = true;
 
-  int index = screen.body.bars[line].source;
-  barsCB[line]->setCurrentIndex(index);
-  if (index) {
-    RawSource source = RawSource(SOURCE_TYPE_TELEMETRY, index-1);
+  RawSource source = screen.body.bars[line].source;
+  if (source.type != SOURCE_TYPE_NONE) {
     RawSourceRange range = source.getRange(model, generalSettings, RANGE_SINGLE_PRECISION);
-    int max = round((range.max - range.min) / range.step);
-    if (int(255-screen.body.bars[line].barMax) > max)
-      screen.body.bars[line].barMax = 255 - max;
+    if (!IS_ARM(GetCurrentFirmware()->getBoard())) {
+      int max = round((range.max - range.min) / range.step);
+      if (int(255-screen.body.bars[line].barMax) > max) {
+        screen.body.bars[line].barMax = 255 - max;
+      }
+    }
     minSB[line]->setEnabled(true);
     minSB[line]->setDecimals(range.decimals);
     minSB[line]->setMinimum(range.min);
@@ -413,7 +406,12 @@ void TelemetryCustomScreen::updateBar(int line)
     maxSB[line]->setMinimum(range.min);
     maxSB[line]->setMaximum(range.max);
     maxSB[line]->setSingleStep(range.step);
-    maxSB[line]->setValue(range.getValue(255 - screen.body.bars[line].barMax));
+    if (IS_ARM(GetCurrentFirmware()->getBoard())) {
+      maxSB[line]->setValue(range.getValue(screen.body.bars[line].barMax));
+    }
+    else {
+      maxSB[line]->setValue(range.getValue(255 - screen.body.bars[line].barMax));
+    }
   }
   else {
     minSB[line]->setDisabled(true);
@@ -427,9 +425,18 @@ void TelemetryCustomScreen::on_screenType_currentIndexChanged(int index)
 {
   if (!lock) {
     memset(&screen.body, 0, sizeof(screen.body));
-    screen.type = index;
     update();
     emit modified();
+  }
+}
+
+void TelemetryCustomScreen::scriptNameEdited()
+{
+  if (!lock) {
+    lock = true;
+    getFileComboBoxValue(ui->scriptName, screen.body.script.filename, 8);
+    emit modified();
+    lock = false;
   }
 }
 
@@ -437,20 +444,20 @@ void TelemetryCustomScreen::customFieldChanged(int value)
 {
   if (!lock) {
     int index = sender()->property("index").toInt();
-    screen.body.lines[index/256].source[index%256] = value;
+    screen.body.lines[index/256].source[index%256] = RawSource(((QComboBox *)sender())->itemData(value).toInt());
     emit modified();
   }
 }
 
-void TelemetryCustomScreen::barSourceChanged(int index)
+void TelemetryCustomScreen::barSourceChanged(int value)
 {
   if (!lock) {
     QComboBox * cb = qobject_cast<QComboBox*>(sender());
-    int line = cb->property("index").toInt();
-    screen.body.bars[line].source = index;
-    screen.body.bars[line].barMin = 0;
-    screen.body.bars[line].barMax = 0;
-    updateBar(line);
+    int index = cb->property("index").toInt();
+    screen.body.bars[index].source = RawSource(((QComboBox *)sender())->itemData(value).toInt());
+    screen.body.bars[index].barMin = 0;
+    screen.body.bars[index].barMax = 0;
+    updateBar(index);
     emit modified();
   }
 }
@@ -459,7 +466,10 @@ void TelemetryCustomScreen::barMinChanged(double value)
 {
   if (!lock) {
     int line = sender()->property("index").toInt();
-    screen.body.bars[line].barMin = round((value-minSB[line]->minimum()) / minSB[line]->singleStep());
+    if (IS_ARM(GetCurrentFirmware()->getBoard()))
+      screen.body.bars[line].barMin = round(value / minSB[line]->singleStep());
+    else
+      screen.body.bars[line].barMin = round((value-minSB[line]->minimum()) / minSB[line]->singleStep());
     // TODO set min (maxSB)
     emit modified();
   }
@@ -469,7 +479,10 @@ void TelemetryCustomScreen::barMaxChanged(double value)
 {
   if (!lock) {
     int line = sender()->property("index").toInt();
-    screen.body.bars[line].barMax = 255 - round((value-minSB[line]->minimum()) / maxSB[line]->singleStep());
+    if (IS_ARM(GetCurrentFirmware()->getBoard()))
+      screen.body.bars[line].barMax = round((value) / maxSB[line]->singleStep());
+    else
+      screen.body.bars[line].barMax = 255 - round((value-minSB[line]->minimum()) / maxSB[line]->singleStep());
     // TODO set max (minSB)
     emit modified();
   }
@@ -486,18 +499,20 @@ TelemetrySensorPanel::TelemetrySensorPanel(QWidget *parent, SensorData & sensor,
   ui->instance->setField(sensor.instance);
   ui->ratio->setField(sensor.ratio);
   ui->offset->setField(sensor.offset);
-  ui->inputFlags->setField(sensor.inputFlags);
+  ui->autoOffset->setField(sensor.autoOffset);
+  ui->filter->setField(sensor.filter);
   ui->logs->setField(sensor.logs);
   ui->persistent->setField(sensor.persistent);
+  ui->onlyPositive->setField(sensor.onlyPositive);
   ui->gpsSensor->setField(sensor.gps);
   ui->altSensor->setField(sensor.alt);
   ui->ampsSensor->setField(sensor.amps);
   ui->cellsSensor->setField(sensor.source);
-  ui->cellsIndex->addItem(tr("Lowest"), 0);
-  for (int i=1; i<=6; ++i)
+  ui->cellsIndex->addItem(tr("Lowest"), SensorData::TELEM_CELL_INDEX_LOWEST);
+  for (int i=1; i<=6; i++)
     ui->cellsIndex->addItem(tr("Cell %1").arg(i), i);
-  ui->cellsIndex->addItem(tr("Highest"), 0);
-  ui->cellsIndex->addItem(tr("Delta"), 0);
+  ui->cellsIndex->addItem(tr("Highest"), SensorData::TELEM_CELL_INDEX_HIGHEST);
+  ui->cellsIndex->addItem(tr("Delta"), SensorData::TELEM_CELL_INDEX_DELTA);
   ui->cellsIndex->setField(sensor.index);
   ui->source1->setField(sensor.sources[0]);
   ui->source2->setField(sensor.sources[1]);
@@ -513,7 +528,7 @@ TelemetrySensorPanel::~TelemetrySensorPanel()
 
 void TelemetrySensorPanel::update()
 {
-  bool precDisplayed = false;
+  bool isConfigurable = false;
   bool gpsFieldsDisplayed = false;
   bool cellsFieldsDisplayed = false;
   bool consFieldsDisplayed = false;
@@ -527,7 +542,7 @@ void TelemetrySensorPanel::update()
   ui->unit->setCurrentIndex(sensor.unit);
   ui->prec->setValue(sensor.prec);
 
-  if (sensor.type == SensorData::TYPE_CALCULATED) {
+  if (sensor.type == SensorData::TELEM_TYPE_CALCULATED) {
     sensor.updateUnit();
     ui->idLabel->hide();
     ui->id->hide();
@@ -535,12 +550,12 @@ void TelemetrySensorPanel::update()
     ui->instance->hide();
     ui->formula->show();
     ui->formula->setCurrentIndex(sensor.formula);
-    precDisplayed = (sensor.formula < SensorData::FORMULA_CELL);
-    gpsFieldsDisplayed = (sensor.formula == SensorData::FORMULA_DIST);
-    cellsFieldsDisplayed = (sensor.formula == SensorData::FORMULA_CELL);
-    consFieldsDisplayed = (sensor.formula == SensorData::FORMULA_CONSUMPTION);
-    sources12FieldsDisplayed = (sensor.formula <= SensorData::FORMULA_MULTIPLY);
-    sources34FieldsDisplayed = (sensor.formula < SensorData::FORMULA_MULTIPLY);
+    isConfigurable = (sensor.formula < SensorData::TELEM_FORMULA_CELL);
+    gpsFieldsDisplayed = (sensor.formula == SensorData::TELEM_FORMULA_DIST);
+    cellsFieldsDisplayed = (sensor.formula == SensorData::TELEM_FORMULA_CELL);
+    consFieldsDisplayed = (sensor.formula == SensorData::TELEM_FORMULA_CONSUMPTION);
+    sources12FieldsDisplayed = (sensor.formula <= SensorData::TELEM_FORMULA_MULTIPLY);
+    sources34FieldsDisplayed = (sensor.formula < SensorData::TELEM_FORMULA_MULTIPLY);
     updateSourcesComboBox(ui->source1, true);
     updateSourcesComboBox(ui->source2, true);
     updateSourcesComboBox(ui->source3, true);
@@ -556,18 +571,33 @@ void TelemetrySensorPanel::update()
     ui->instanceLabel->show();
     ui->instance->show();
     ui->formula->hide();
-    ratioFieldsDisplayed = (sensor.unit != SensorData::UNIT_GPS && sensor.unit != SensorData::UNIT_DATETIME);
-    ui->offset->setDecimals(sensor.prec);
-    precDisplayed = (sensor.unit != SensorData::UNIT_GPS && sensor.unit != SensorData::UNIT_DATETIME);
+    isConfigurable = sensor.unit < SensorData::UNIT_FIRST_VIRTUAL;
+    ratioFieldsDisplayed = (sensor.unit < SensorData::UNIT_FIRST_VIRTUAL);
+    ui->offset->setMaximum((sensor.prec > 0 ? sensor.prec == 2 ? 30000 : 3000 : 300));
+    ui->offset->setMinimum((sensor.prec > 0 ? sensor.prec == 2 ? -30000 : -3000 : -300));
+
+    if (sensor.unit == SensorData::UNIT_RPMS) {
+      ui->offset->setDecimals(0);
+      ui->ratio->setDecimals(0);
+      ui->autoOffset->hide();
+      ui->ratio->setMinimum(1);
+      ui->offset->setMinimum(1);
+    }
+    else {
+      ui->offset->setDecimals(sensor.prec);
+      ui->ratio->setDecimals(1);
+    }
   }
 
-  ui->ratioLabel->setVisible(ratioFieldsDisplayed);
+  ui->ratioLabel->setVisible(ratioFieldsDisplayed && sensor.unit != SensorData::UNIT_RPMS);
+  ui->bladesLabel->setVisible(sensor.unit == SensorData::UNIT_RPMS);
   ui->ratio->setVisible(ratioFieldsDisplayed);
-  ui->offsetLabel->setVisible(ratioFieldsDisplayed);
+  ui->offsetLabel->setVisible(ratioFieldsDisplayed && sensor.unit != SensorData::UNIT_RPMS);
+  ui->multiplierLabel->setVisible(sensor.unit == SensorData::UNIT_RPMS);
   ui->offset->setVisible(ratioFieldsDisplayed);
-  ui->precLabel->setVisible(precDisplayed);
-  ui->prec->setVisible(precDisplayed);
-  ui->unit->setVisible(precDisplayed);
+  ui->precLabel->setVisible(isConfigurable);
+  ui->prec->setVisible(isConfigurable && sensor.unit != SensorData::UNIT_FAHRENHEIT);
+  ui->unit->setVisible((sensor.type == SensorData::TELEM_TYPE_CALCULATED && (sensor.formula == SensorData::TELEM_FORMULA_DIST)) || isConfigurable);
   ui->gpsSensorLabel->setVisible(gpsFieldsDisplayed);
   ui->gpsSensor->setVisible(gpsFieldsDisplayed);
   ui->altSensorLabel->setVisible(gpsFieldsDisplayed);
@@ -581,6 +611,9 @@ void TelemetrySensorPanel::update()
   ui->source2->setVisible(sources12FieldsDisplayed);
   ui->source3->setVisible(sources34FieldsDisplayed);
   ui->source4->setVisible(sources34FieldsDisplayed);
+  ui->autoOffset->setVisible(sensor.unit != SensorData::UNIT_RPMS && isConfigurable);
+  ui->filter->setVisible(isConfigurable);
+  ui->persistent->setVisible((sensor.type == SensorData::TELEM_TYPE_CALCULATED && sensor.formula == SensorData::TELEM_FORMULA_CONSUMPTION) || isConfigurable);
 
   lock = false;
 }
@@ -628,6 +661,10 @@ void TelemetrySensorPanel::on_formula_currentIndexChanged(int index)
 {
   if (!lock) {
     sensor.formula = index;
+    if (sensor.formula == SensorData::TELEM_FORMULA_CELL) {
+      sensor.prec = 2;
+      sensor.unit = SensorData::UNIT_VOLTS;
+    }
     update();
     emit modified();
   }
@@ -642,7 +679,7 @@ void TelemetrySensorPanel::on_unit_currentIndexChanged(int index)
   }
 }
 
-void TelemetrySensorPanel::on_prec_editingFinished()
+void TelemetrySensorPanel::on_prec_valueChanged()
 {
   if (!lock) {
     sensor.prec = ui->prec->value();
@@ -661,19 +698,6 @@ TelemetryPanel::TelemetryPanel(QWidget *parent, ModelData & model, GeneralSettin
 
   if (firmware->getCapability(NoTelemetryProtocol)) {
     model.frsky.usrProto = 1;
-  }
-
-  if (IS_ARM(firmware->getBoard())) {
-    ui->telemetryProtocol->addItem(tr("FrSky S.PORT"), 0);
-    ui->telemetryProtocol->addItem(tr("FrSky D"), 1);
-    if (IS_9XRPRO(firmware->getBoard())) {
-      ui->telemetryProtocol->addItem(tr("FrSky D (cable)"), 2);
-    }
-    ui->telemetryProtocol->setCurrentIndex(model.telemetryProtocol);
-  }
-  else {
-    ui->telemetryProtocolLabel->hide();
-    ui->telemetryProtocol->hide();
   }
 
   if (IS_ARM(firmware->getBoard())) {
@@ -699,6 +723,8 @@ TelemetryPanel::TelemetryPanel(QWidget *parent, ModelData & model, GeneralSettin
   if (IS_TARANIS(firmware->getBoard())) {
     ui->voltsSource->setField(model.frsky.voltsSource);
     ui->altitudeSource->setField(model.frsky.altitudeSource);
+    ui->varioSource->setField(model.frsky.varioSource);
+    ui->varioCenterSilent->setField(model.frsky.varioCenterSilent);
   }
   else {
     ui->topbarGB->hide();
@@ -733,11 +759,15 @@ void TelemetryPanel::update()
 
     populateTelemetrySourcesComboBox(ui->voltsSource, model, false);
     populateTelemetrySourcesComboBox(ui->altitudeSource, model, false);
+    populateTelemetrySourcesComboBox(ui->varioSource, model, false);
   }
 
   if (IS_ARM(firmware->getBoard())) {
     for (int i=0; i<C9X_MAX_SENSORS; ++i) {
       sensorPanels[i]->update();
+    }
+    for (int i=0; i<firmware->getCapability(TelemetryCustomScreens); i++) {
+      telemetryCustomScreens[i]->update();
     }
   }
 }
@@ -747,6 +777,21 @@ void TelemetryPanel::setup()
     QString firmware_id = g.profile[g.id()].fwType();
 
     lock = true;
+
+    if (IS_ARM(firmware->getBoard())) {
+      ui->telemetryProtocol->addItem(tr("FrSky S.PORT"), 0);
+      ui->telemetryProtocol->addItem(tr("FrSky D"), 1);
+      if (IS_9XRPRO(firmware->getBoard())) {
+        ui->telemetryProtocol->addItem(tr("FrSky D (cable)"), 2);
+      }
+      ui->telemetryProtocol->setCurrentIndex(model->telemetryProtocol);
+      ui->ignoreSensorIds->setField(model->frsky.ignoreSensorIds);
+    }
+    else {
+      ui->telemetryProtocolLabel->hide();
+      ui->telemetryProtocol->hide();
+      ui->ignoreSensorIds->hide();
+    }
 
     ui->rssiAlarm1SB->setValue(model->frsky.rssiAlarms[0].value);
     ui->rssiAlarm2SB->setValue(model->frsky.rssiAlarms[1].value);
@@ -780,7 +825,7 @@ void TelemetryPanel::setup()
       ui->VarioLabel_2->hide();
       ui->VarioLabel_3->hide();
       ui->VarioLabel_4->hide();
-      ui->varioSourceCB->hide();
+      ui->varioSource->hide();
       ui->varioSource_label->hide();
     }
     else {
@@ -835,29 +880,23 @@ void TelemetryPanel::setup()
 
       ui->frskyProtoCB->setCurrentIndex(model->frsky.usrProto);
       ui->bladesCount->setValue(model->frsky.blades);
+      populateVarioSource();
+      populateVoltsSource();
+      populateCurrentSource();
     }
-
-    populateVoltsSource();
-    populateCurrentSource();
-    populateVarioSource();
 
     lock = false;
 }
 
 void TelemetryPanel::populateVarioSource()
 {
-  AutoComboBox * cb = ui->varioSourceCB;
+  AutoComboBox * cb = ui->varioSource;
   cb->setField(model->frsky.varioSource, this);
-  if (!IS_TARANIS(firmware->getBoard())) {
-    cb->addItem(tr("Alti"), TELEMETRY_VARIO_SOURCE_ALTI);
-    cb->addItem(tr("Alti+"), TELEMETRY_VARIO_SOURCE_ALTI_PLUS);
-  }
+  cb->addItem(tr("Alti"), TELEMETRY_VARIO_SOURCE_ALTI);
+  cb->addItem(tr("Alti+"), TELEMETRY_VARIO_SOURCE_ALTI_PLUS);
   cb->addItem(tr("VSpeed"), TELEMETRY_VARIO_SOURCE_VSPEED);
   cb->addItem(tr("A1"), TELEMETRY_VARIO_SOURCE_A1);
   cb->addItem(tr("A2"), TELEMETRY_VARIO_SOURCE_A2);
-  if (IS_TARANIS(firmware->getBoard())) {
-    cb->addItem(tr("dTE"), TELEMETRY_VARIO_SOURCE_DTE);
-  }
 }
 
 void TelemetryPanel::populateVoltsSource()
@@ -890,8 +929,10 @@ void TelemetryPanel::populateCurrentSource()
 
 void TelemetryPanel::on_telemetryProtocol_currentIndexChanged(int index)
 {
-  model->telemetryProtocol = index;
-  emit modified();
+  if (!lock) {
+    model->telemetryProtocol = index;
+    emit modified();
+  }
 }
 
 void TelemetryPanel::onAnalogModified()
@@ -901,16 +942,20 @@ void TelemetryPanel::onAnalogModified()
 
 void TelemetryPanel::on_bladesCount_editingFinished()
 {
-  model->frsky.blades = ui->bladesCount->value();
-  emit modified();
+  if (!lock) {
+    model->frsky.blades = ui->bladesCount->value();
+    emit modified();
+  }
 }
 
 void TelemetryPanel::on_frskyProtoCB_currentIndexChanged(int index)
 {
-  model->frsky.usrProto = index;
-  for (int i=0; i<firmware->getCapability(TelemetryCustomScreens); i++)
-    telemetryCustomScreens[i]->update();
-  emit modified();
+  if (!lock) {
+    model->frsky.usrProto = index;
+    for (int i=0; i<firmware->getCapability(TelemetryCustomScreens); i++)
+      telemetryCustomScreens[i]->update();
+    emit modified();
+  }
 }
 
 void TelemetryPanel::on_rssiAlarm1CB_currentIndexChanged(int index)

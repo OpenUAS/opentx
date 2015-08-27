@@ -56,7 +56,11 @@ FlightModePanel::FlightModePanel(QWidget * parent, ModelData & model, int phaseI
   }
     
   // The trims
-  QString labels[] = { tr("Rud"), tr("Ele"), tr("Thr"), tr("Ail") }; // TODO is elsewhere for sure
+  QString labels[NUM_STICKS]; 
+  for(int i=0; i < NUM_STICKS; i++) {
+    labels[i] = AnalogString(i);
+  }
+
 
   trimsLabel << ui->trim1Label << ui->trim2Label << ui->trim3Label << ui->trim4Label;
   trimsUse << ui->trim1Use << ui->trim2Use << ui->trim3Use << ui->trim4Use;
@@ -209,7 +213,9 @@ void FlightModePanel::update()
 
   if (ui->gvGB->isVisible()) {
     for (int i=0; i<gvCount; i++) {
-      gvNames[i]->setText(model->gvars_names[i]);
+      if (firmware->getCapability(GvarsName) > 0) {
+        gvNames[i]->setText(model->gvars_names[i]);
+      }
       gvValues[i]->setDisabled(model->isGVarLinked(phaseIdx, i));
       gvValues[i]->setValue(model->getGVarValue(phaseIdx, i));
       if (IS_TARANIS(GetEepromInterface()->getBoard()) && phaseIdx == 0) { 

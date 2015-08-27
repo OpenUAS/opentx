@@ -48,8 +48,13 @@
 #include <QSplashScreen>
 #include <QThread>
 #include <iostream>
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  #include <SDL.h>
+  #undef main
+#endif
 #include "simulatordialog.h"
 #include "eeprominterface.h"
+#include "appdata.h"
 
 #if defined WIN32 || !defined __GNUC__
 #include <windows.h>
@@ -98,26 +103,26 @@ int main(int argc, char *argv[])
 
   QTextCodec::setCodecForCStrings(QTextCodec::codecForName("UTF-8"));
 
-  registerEEpromInterfaces();
-  registerOpenTxFirmwares();
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  uint32_t sdlFlags = 0;
+  #ifdef JOYSTICKS
+    sdlFlags |= SDL_INIT_JOYSTICK;
+  #endif
+  #ifdef SIMU_AUDIO
+    sdlFlags |= SDL_INIT_AUDIO;
+  #endif
+  if (SDL_Init(sdlFlags) < 0) {
+    fprintf(stderr, "ERROR: couldn't initialize SDL: %s\n", SDL_GetError());
+  }
+#endif
 
   SimulatorDialog *dialog;
-  const char * eepromFileName;
-  QString fileName;
-  QByteArray path;
+  QString eepromFileName;
   QDir eedir;
   QFile file;
 
-  QMessageBox msgBox;
-  msgBox.setWindowTitle("Radio type");
-  msgBox.setText("Which radio type do you want to simulate?");
-  msgBox.setIcon(QMessageBox::Question);
-  QAbstractButton *taranisButton = msgBox.addButton("Taranis", QMessageBox::ActionRole);
-  QAbstractButton *sky9xButton = msgBox.addButton("9X-Sky9X", QMessageBox::ActionRole);
-  QAbstractButton *gruvinButton = msgBox.addButton("9X-Gruvin9X", QMessageBox::ActionRole);
-  QAbstractButton *proButton = msgBox.addButton("9XR-Pro", QMessageBox::ActionRole);
-  msgBox.addButton("9X-M128", QMessageBox::ActionRole);
-  QPushButton *exitButton = msgBox.addButton(QMessageBox::Close);
+  registerSimulators();
+  registerOpenTxFirmwares();
 
   eedir = QDir(QDesktopServices::storageLocation(QDesktopServices::DocumentsLocation));
   if (!eedir.exists("OpenTX")) {
@@ -125,52 +130,55 @@ int main(int argc, char *argv[])
   }
   eedir.cd("OpenTX");
 
-  msgBox.exec();
-  
-  if (msgBox.clickedButton() == exitButton)
-    return 0;
-  else if (msgBox.clickedButton() == taranisButton) {
-    current_firmware_variant = GetFirmware("opentx-taranis-haptic-en");
-    fileName = eedir.filePath("eeprom-taranis.bin");
-    path = fileName.toAscii();
-    eepromFileName = path.data();
-    dialog = new SimulatorDialogTaranis();
+  QStringList firmwareIds;
+  int currentIdx = 0;
+  foreach(SimulatorFactory *factory, registered_simulators) {
+    firmwareIds << factory->name();
+    if (factory->name() == g.lastSimulator()) {
+      currentIdx = firmwareIds.size() - 1;
+    }
   }
-  else if (msgBox.clickedButton() == sky9xButton) {
-    current_firmware_variant = GetFirmware("opentx-sky9x-heli-templates-ppmca-gvars-symlimits-autosource-autoswitch-battgraph-bluetooth-en");
-    fileName = eedir.filePath("eeprom-sky9x.bin");
-    path = fileName.toAscii();
-    eepromFileName = path.data();
-    dialog = new SimulatorDialog9X();
-  }
-  else if (msgBox.clickedButton() == gruvinButton) {
-    current_firmware_variant = GetFirmware("opentx-gruvin9x-heli-templates-sdcard-voice-DSM2PPM-ppmca-gvars-symlimits-autosource-autoswitch-battgraph-ttsen-en");
-    fileName = eedir.filePath("eeprom-gruvin9x.bin");
-    path = fileName.toAscii();
-    eepromFileName = path.data();
-    dialog = new SimulatorDialog9X();
-  }
-  else if (msgBox.clickedButton() == proButton) {
-    current_firmware_variant = GetFirmware("opentx-9xrpro-heli-templates-ppmca-gvars-symlimits-autosource-autoswitch-battgraph-en");
-    fileName = eedir.filePath("eeprom-9xrpro.bin");
-    path = fileName.toAscii();
-    eepromFileName = path.data();
-    dialog = new SimulatorDialog9X();
+
+  bool ok;
+  QString firmwareId = QInputDialog::getItem(0, QObject::tr("Radio type"), 
+                                                QObject::tr("Which radio type do you want to simulate?"),
+                                                firmwareIds, currentIdx, false, &ok);
+  if (ok && !firmwareId.isEmpty()) {
+    if (firmwareId != g.lastSimulator()) {
+      g.lastSimulator(firmwareId);
+    }
+    QString radioId;
+    int pos = firmwareId.indexOf("-");
+    if (pos > 0) {
+      radioId = firmwareId.mid(pos+1);
+      pos = radioId.lastIndexOf("-");
+      if (pos > 0) {
+        radioId = radioId.mid(0, pos);
+      }
+    }
+    current_firmware_variant = GetFirmware(firmwareId);
+    eepromFileName = QString("eeprom-%1.bin").arg(radioId);
+    eepromFileName = eedir.filePath(eepromFileName.toAscii());
+    SimulatorFactory *factory = getSimulatorFactory(firmwareId);
+    if (factory->type() == BOARD_TARANIS)
+      dialog = new SimulatorDialogTaranis(NULL, factory->create(), SIMULATOR_FLAGS_S1|SIMULATOR_FLAGS_S2);
+    else
+      dialog = new SimulatorDialog9X(NULL, factory->create());
   }
   else {
-    current_firmware_variant = GetFirmware("opentx-9x128-frsky-heli-templates-audio-voice-haptic-DSM2-ppmca-gvars-symlimits-autosource-autoswitch-battgraph-thrtrace-en");
-    fileName = eedir.filePath("eeprom-9x128.bin");
-    path = fileName.toAscii();
-    eepromFileName = path.data();
-    dialog = new SimulatorDialog9X();
+    return 0;
   }
 
   dialog->show();
-  dialog->start(eepromFileName);
+  dialog->start(eepromFileName.toAscii().constData());
 
   int result = app.exec();
 
   delete dialog;
+
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  SDL_Quit();
+#endif
 
   return result;
 }

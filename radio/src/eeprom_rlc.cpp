@@ -34,9 +34,10 @@
  *
  */
 
+#include <inttypes.h>
+#include <string.h>
 #include "opentx.h"
-#include "inttypes.h"
-#include "string.h"
+#include "timers.h"
 
 uint8_t   s_write_err = 0;    // error reasons
 RlcFile   theFile;  //used for any file operation
@@ -50,7 +51,7 @@ uint8_t  s_sync_write = false;
 
 #if !defined(CPUARM)
 uint16_t eeprom_pointer;
-const char * eeprom_buffer_data;
+uint8_t * eeprom_buffer_data;
 volatile int8_t eeprom_buffer_size = 0;
 
 #if !defined(SIMU)
@@ -85,12 +86,12 @@ ISR(EE_READY_vect)
 }
 #endif
 
-void eeWriteBlockCmp(const void *i_pointer_ram, uint16_t i_pointer_eeprom, size_t size)
+void eepromWriteBlock(uint8_t * i_pointer_ram, uint16_t i_pointer_eeprom, size_t size)
 {
   assert(!eeprom_buffer_size);
 
   eeprom_pointer = i_pointer_eeprom;
-  eeprom_buffer_data = (const char*)i_pointer_ram;
+  eeprom_buffer_data = i_pointer_ram;
   eeprom_buffer_size = size+1;
 
 #if defined(SIMU)
@@ -110,13 +111,7 @@ void eeWriteBlockCmp(const void *i_pointer_ram, uint16_t i_pointer_eeprom, size_
 static uint8_t EeFsRead(blkid_t blk, uint8_t ofs)
 {
   uint8_t ret;
-#if defined(CPUARM)
-  eeprom_read_block(&ret, (uint16_t)(blk*BS+ofs+BLOCKS_OFFSET), 1);
-#elif defined(SIMU)
-  eeprom_read_block(&ret, (const void*)(uint64_t)(blk*BS+ofs+BLOCKS_OFFSET), 1);
-#else
-  eeprom_read_block(&ret, (const void*)(blk*BS+ofs+BLOCKS_OFFSET), 1);
-#endif
+  eepromReadBlock(&ret, (uint16_t)(blk*BS+ofs+BLOCKS_OFFSET), 1);
   return ret;
 }
 
@@ -124,7 +119,7 @@ static blkid_t EeFsGetLink(blkid_t blk)
 {
 #if defined(CPUARM)
   blkid_t ret;
-  eeprom_read_block((uint8_t *)&ret, blk*BS+BLOCKS_OFFSET, sizeof(blkid_t));
+  eepromReadBlock((uint8_t *)&ret, blk*BS+BLOCKS_OFFSET, sizeof(blkid_t));
   return ret;
 #else
   return EeFsRead(blk, 0);
@@ -135,7 +130,7 @@ static void EeFsSetLink(blkid_t blk, blkid_t val)
 {
   static blkid_t s_link; // we write asynchronously, then nothing on the stack!
   s_link = val;
-  eeWriteBlockCmp((uint8_t *)&s_link, (blk*BS)+BLOCKS_OFFSET, sizeof(blkid_t));
+  eepromWriteBlock((uint8_t *)&s_link, (blk*BS)+BLOCKS_OFFSET, sizeof(blkid_t));
 }
 
 static uint8_t EeFsGetDat(blkid_t blk, uint8_t ofs)
@@ -145,22 +140,22 @@ static uint8_t EeFsGetDat(blkid_t blk, uint8_t ofs)
 
 static void EeFsSetDat(blkid_t blk, uint8_t ofs, uint8_t *buf, uint8_t len)
 {
-  eeWriteBlockCmp(buf, (blk*BS)+ofs+sizeof(blkid_t)+BLOCKS_OFFSET, len);
+  eepromWriteBlock(buf, (blk*BS)+ofs+sizeof(blkid_t)+BLOCKS_OFFSET, len);
 }
 
 static void EeFsFlushFreelist()
 {
-  eeWriteBlockCmp((uint8_t *)&eeFs.freeList, offsetof(EeFs, freeList), sizeof(eeFs.freeList));
+  eepromWriteBlock((uint8_t *)&eeFs.freeList, offsetof(EeFs, freeList), sizeof(eeFs.freeList));
 }
 
 static void EeFsFlushDirEnt(uint8_t i_fileId)
 {
-  eeWriteBlockCmp((uint8_t *)&eeFs.files[i_fileId], offsetof(EeFs, files) + sizeof(DirEnt)*i_fileId, sizeof(DirEnt));
+  eepromWriteBlock((uint8_t *)&eeFs.files[i_fileId], offsetof(EeFs, files) + sizeof(DirEnt)*i_fileId, sizeof(DirEnt));
 }
 
 static void EeFsFlush()
 {
-  eeWriteBlockCmp((uint8_t *)&eeFs, 0, sizeof(eeFs));
+  eepromWriteBlock((uint8_t *)&eeFs, 0, sizeof(eeFs));
 }
 
 uint16_t EeFsGetFree()
@@ -186,13 +181,13 @@ static void EeFsFree(blkid_t blk)
   blkid_t i = blk;
   blkid_t tmp;
 
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
   freeBlocks++;
 #endif
 
   while ((tmp=EeFsGetLink(i))) {
     i = tmp;
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
     freeBlocks++;
 #endif
   }
@@ -202,7 +197,7 @@ static void EeFsFree(blkid_t blk)
   EeFsFlushFreelist();
 }
 
-int8_t EeFsck()
+void eepromCheck()
 {
   ENABLE_SYNC_WRITE(true);
 
@@ -210,11 +205,11 @@ int8_t EeFsck()
   memclear(bufp, BLOCKS);
   blkid_t blk ;
 
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
   blkid_t blocksCount;
 #endif
   for (uint8_t i=0; i<=MAXFILES; i++) {
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
     blocksCount = 0;
 #endif
     blkid_t *startP = (i==MAXFILES ? &eeFs.freeList : &eeFs.files[i].startBlk);
@@ -235,7 +230,7 @@ int8_t EeFsck()
         blk = 0; // abort
       }
       else {
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
         blocksCount++;
 #endif
         bufp[blk] = i+1;
@@ -245,13 +240,13 @@ int8_t EeFsck()
     }
   }
 
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
   freeBlocks = blocksCount;
 #endif
 
   for (blk=FIRSTBLK; blk<BLOCKS; blk++) {
     if (!bufp[blk]) { // unused block
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
       freeBlocks++;
 #endif
       EeFsSetLink(blk, eeFs.freeList);
@@ -261,13 +256,17 @@ int8_t EeFsck()
   }
 
   ENABLE_SYNC_WRITE(false);
-
-  return 0;
 }
 
-void EeFsFormat()
+void eepromFormat()
 {
   ENABLE_SYNC_WRITE(true);
+
+#ifdef SIMU
+  // write zero to the end of the new EEPROM file to set it's proper size
+  uint8_t dummy = 0;
+  eepromWriteBlock(&dummy, EESIZE-1, 1);
+#endif
 
   memclear(&eeFs, sizeof(eeFs));
   eeFs.version  = EEFS_VERS;
@@ -279,7 +278,7 @@ void EeFsFormat()
   }
   EeFsSetLink(BLOCKS-1, 0);
   eeFs.freeList = FIRSTBLK;
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
   freeBlocks = BLOCKS;
 #endif
   EeFsFlush();
@@ -287,22 +286,25 @@ void EeFsFormat()
   ENABLE_SYNC_WRITE(false);
 }
 
-inline bool EeFsOpen()
+bool eepromOpen()
 {
-  eeprom_read_block((uint8_t *)&eeFs, 0, sizeof(eeFs));
+  eepromReadBlock((uint8_t *)&eeFs, 0, sizeof(eeFs));
 
 #ifdef SIMU
   if (eeFs.version != EEFS_VERS) {
-    printf("bad eeFs.version (%d instead of %d)\n", eeFs.version, EEFS_VERS);
-    fflush(stdout);
+    TRACE("bad eeFs.version (%d instead of %d)", eeFs.version, EEFS_VERS);
   }
   if (eeFs.mySize != sizeof(eeFs)) {
-    printf("bad eeFs.mySize (%d instead of %d)\n", (int)eeFs.mySize, (int)sizeof(eeFs));
-    fflush(stdout);
+    TRACE("bad eeFs.mySize (%d instead of %d)", (int)eeFs.mySize, (int)sizeof(eeFs));
   }
 #endif  
 
-  return eeFs.version == EEFS_VERS && eeFs.mySize == sizeof(eeFs);
+  if (eeFs.version != EEFS_VERS || eeFs.mySize != sizeof(eeFs)) {
+    return false;
+  }
+
+  eepromCheck();
+  return true;
 }
 
 bool EFile::exists(uint8_t i_fileId)
@@ -433,7 +435,7 @@ void RlcFile::nextWriteStep()
   if (!m_currBlk && m_pos==0) {
     eeFs.files[FILE_TMP].startBlk = m_currBlk = eeFs.freeList;
     if (m_currBlk) {
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
       freeBlocks--;
 #endif
       eeFs.freeList = EeFsGetLink(m_currBlk);
@@ -472,7 +474,7 @@ void RlcFile::nextWriteStep()
     switch (m_write_step & 0x0f) {
       case WRITE_NEXT_LINK_1:
         m_currBlk = eeFs.freeList;
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
         freeBlocks--;
 #endif
         eeFs.freeList = EeFsGetLink(eeFs.freeList);
@@ -551,7 +553,6 @@ bool RlcFile::copy(uint8_t i_fileDst, uint8_t i_fileSrc)
 }
 
 #if defined(SDCARD)
-extern FIL g_oLogFile;
 const pm_char * eeBackupModel(uint8_t i_fileSrc)
 {
   char *buf = reusableBuffer.modelsel.mainname;
@@ -605,7 +606,7 @@ const pm_char * eeBackupModel(uint8_t i_fileSrc)
   strcpy_P(&buf[len], STR_MODELS_EXT);
 
 #ifdef SIMU
-  printf("SD-card backup filename=%s\n", buf); fflush(stdout);
+  TRACE("SD-card backup filename=%s", buf);
 #endif
 
   result = f_open(&g_oLogFile, buf, FA_CREATE_ALWAYS | FA_WRITE);
@@ -708,7 +709,7 @@ const pm_char * eeRestoreModel(uint8_t i_fileDst, char *model_name)
 
   f_close(&g_oLogFile);
 
-#if defined(CPUARM)
+#if defined(PCBTARANIS)
   if (version < EEPROM_VER) {
     eeCheck(true);
     ConvertModel(i_fileDst, version);
@@ -803,12 +804,12 @@ void RlcFile::nextRlcWriteStep()
         // TODO reuse EeFsFree!!!
         blkid_t prev_freeList = eeFs.freeList;
         eeFs.freeList = fri;
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
         freeBlocks++;
 #endif
         while (EeFsGetLink(fri)) {
           fri = EeFsGetLink(fri);
-#if defined(PCBTARANIS)
+#if defined(CPUARM)
           freeBlocks++;
 #endif
         }
@@ -870,16 +871,10 @@ void RlcFile::DisplayProgressBar(uint8_t x)
 {
   if (s_eeDirtyMsk || isWriting() || eeprom_buffer_size) {
     uint8_t len = s_eeDirtyMsk ? 1 : limit((uint8_t)1, (uint8_t)(7 - (m_rlc_len/m_ratio)), (uint8_t)7);
-    lcd_filled_rect(x+1, 0, 5, FH, SOLID, ERASE);
-    lcd_filled_rect(x+2, 7-len, 3, len);
+    drawFilledRect(x+1, 0, 5, FH, SOLID, ERASE);
+    drawFilledRect(x+2, 7-len, 3, len);
   }
 }
-#endif
-
-#if defined(PCBSTD)
-  #define CHECK_EEPROM_VARIANT() (g_eeGeneral.variant == EEPROM_VARIANT)
-#else
-  #define CHECK_EEPROM_VARIANT() (1)
 #endif
 
 // For conversions ...
@@ -904,16 +899,21 @@ bool eeLoadGeneral()
   theFile.openRlc(FILE_GENERAL);
   if (theFile.readRlc((uint8_t*)&g_eeGeneral, 1) == 1 && g_eeGeneral.version == EEPROM_VER) {
     theFile.openRlc(FILE_GENERAL);
-    if (theFile.readRlc((uint8_t*)&g_eeGeneral, sizeof(g_eeGeneral)) <= sizeof(EEGeneral) && CHECK_EEPROM_VARIANT()) {
+    if (theFile.readRlc((uint8_t*)&g_eeGeneral, sizeof(g_eeGeneral)) <= sizeof(EEGeneral) && g_eeGeneral.variant == EEPROM_VARIANT) {
       return true;
     }
   }
 
-#if defined(CPUARM)
-  if (g_eeGeneral.version != EEPROM_VER) {
+#if defined(PCBTARANIS)
+  if (g_eeGeneral.variant != EEPROM_VARIANT) {
+    TRACE("EEPROM variant %d instead of %d", g_eeGeneral.variant, EEPROM_VARIANT);
+    return false;
+  }
+  else if (g_eeGeneral.version != EEPROM_VER) {
     TRACE("EEPROM version %d instead of %d", g_eeGeneral.version, EEPROM_VER);
-    if (!eeConvert())
+    if (!eeConvert()) {
       return false;
+    }
   }
   return true;
 #else
@@ -977,24 +977,20 @@ void eeLoadModel(uint8_t id)
     logicalSwitchesReset();
 
     if (pulsesStarted()) {
+#if defined(GUI)
       if (!newModel) {
         checkAll();
       }
+#endif
       resumePulses();
     }
 
     customFunctionsReset();
 
-#if !defined(PCBSTD)
-    for (uint8_t i=0; i<MAX_TIMERS; i++) {
-      if (g_model.timers[i].persistent) {
-        timersStates[i].val = g_model.timers[i].value;
-      }
-    }
-#endif
+    restoreTimers();
 
 #if defined(CPUARM)
-    for (int i=0; i<TELEM_VALUES_MAX; i++) {
+    for (int i=0; i<MAX_SENSORS; i++) {
       TelemetrySensor & sensor = g_model.telemetrySensors[i];
       if (sensor.type == TELEM_TYPE_CALCULATED && sensor.persistent) {
         telemetryItems[i].value = sensor.persistentValue;
@@ -1018,48 +1014,23 @@ void eeLoadModel(uint8_t id)
     LOAD_MODEL_BITMAP();
     LUA_LOAD_MODEL_SCRIPTS();
     SEND_FAILSAFE_1S();
+    PLAY_MODEL_NAME();
   }
 }
 
-// TODO merge this code with eeprom_arm.cpp one
-void eeReadAll()
+void eeErase(bool warn)
 {
-  if (!EeFsOpen() ||
-       EeFsck() < 0 ||
-      !eeLoadGeneral())
-  {
-    generalDefault();
+  generalDefault();
 
+  if (warn) {
     ALERT(STR_EEPROMWARN, STR_BADEEPROMDATA, AU_BAD_EEPROM);
-
-    MESSAGE(STR_EEPROMWARN, STR_EEPROMFORMATTING, NULL, AU_EEPROM_FORMATTING);
-
-    EeFsFormat();
-
-    theFile.writeRlc(FILE_GENERAL, FILE_TYP_GENERAL, (uint8_t*)&g_eeGeneral, sizeof(EEGeneral), true);
-
-    modelDefault(0);
-
-    theFile.writeRlc(FILE_MODEL(0), FILE_TYP_MODEL, (uint8_t*)&g_model, sizeof(g_model), true);
-  }
-  else {
-    eeLoadModelHeaders();
   }
 
-  stickMode = g_eeGeneral.stickMode;
-
-#if defined(CPUARM)
-  for (uint8_t i=0; languagePacks[i]!=NULL; i++) {
-    if (!strncmp(g_eeGeneral.ttsLanguage, languagePacks[i]->id, 2)) {
-      currentLanguagePackIdx = i;
-      currentLanguagePack = languagePacks[i];
-    }
-  }
-#endif
-
-#if !defined(CPUARM)
-  eeLoadModel(g_eeGeneral.currModel);
-#endif
+  MESSAGE(STR_EEPROMWARN, STR_EEPROMFORMATTING, NULL, AU_EEPROM_FORMATTING);
+  eepromFormat();
+  theFile.writeRlc(FILE_GENERAL, FILE_TYP_GENERAL, (uint8_t*)&g_eeGeneral, sizeof(EEGeneral), true);
+  modelDefault(0);
+  theFile.writeRlc(FILE_MODEL(0), FILE_TYP_MODEL, (uint8_t*)&g_model, sizeof(g_model), true);
 }
 
 void eeCheck(bool immediately)

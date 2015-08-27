@@ -51,9 +51,8 @@
 
 #if defined(PCBSKY9X)
   #include "AT91SAM3S4.h"
-#elif defined(PCBTARANIS)
-  #include "stm32f2xx.h"
-  #include "stm32f2xx_gpio.h"
+#else
+  #include "board_taranis.h"
 #endif
 
 #if defined(PCBTARANIS)
@@ -90,41 +89,57 @@ const uint8_t BootCode[] = {
 __attribute__ ((section(".bootrodata"), used))
 void _bootStart()
 {
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN; 		// Enable portC clock
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOEEN; 		// Enable portE clock
+#if defined(REV9E)
+  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIOGEN | RCC_AHB1ENR_GPIODEN;
+#else
+  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIOEEN | RCC_AHB1ENR_GPIODEN;
+#endif
 
+  // these two NOPs are needed (see STM32F errata sheet) before the peripheral 
+  // register can be written after the peripheral clock was enabled
+  __ASM volatile ("nop");
+  __ASM volatile ("nop");
+
+  // Turn soft power ON now
+  GPIOD->BSRRL = 1;                                  // set PWR_GPIO_PIN_ON pin to 1
+  GPIOD->MODER = (GPIOD->MODER & 0xFFFFFFFC) | 1;    // General purpose output mode
+
+  // TRIMS_GPIO_PIN_LHR is on PG0 on 9XE and on PE3 on Taranis
+  // TRIMS_GPIO_PIN_RHL is on PC1 on all versions
+
+  // turn on pull-ups on trim keys 
   GPIOC->PUPDR = 0x00000004;
+#if defined(REV9E)
+  GPIOG->PUPDR = 0x00000001;
+#else
   GPIOE->PUPDR = 0x00000040;
-
-  uint32_t i;
-  for (i = 0; i < 50000; i += 1) {
+#endif
+  
+  for (uint32_t i = 0; i < 50000; i += 1) {
     bwdt_reset();
   }
 
-  if ((GPIOE->IDR & 0x00000008) == 0) {
-    if ((GPIOC->IDR & 0x00000002) == 0) {
-      // Bootloader needed
-      const uint8_t *src;
-      uint8_t *dest;
-      uint32_t size;
+  if (!(TRIMS_GPIO_REG_LHR & TRIMS_GPIO_PIN_LHR) && !(TRIMS_GPIO_REG_RHL & TRIMS_GPIO_PIN_RHL)) {
+    // Bootloader needed
+    const uint8_t *src;
+    uint8_t *dest;
+    uint32_t size;
 
-      bwdt_reset();
-      size = sizeof(BootCode);
-      src = BootCode;
-      dest = (uint8_t *) 0x20000000;
+    bwdt_reset();
+    size = sizeof(BootCode);
+    src = BootCode;
+    dest = (uint8_t *) 0x20000000;
 
-      for (; size; size -= 1) {
-        *dest++ = *src++;
-      }
-      // Could check for a valid copy to RAM here
-      // Go execute bootloader
-      bwdt_reset();
-
-      uint32_t address = *(uint32_t *) 0x20000004;
-
-      ((void (*)(void)) (address))();		// Go execute the loaded application
-
+    for (; size; size -= 1) {
+      *dest++ = *src++;
     }
+    // Could check for a valid copy to RAM here
+    // Go execute bootloader
+    bwdt_reset();
+
+    uint32_t address = *(uint32_t *) 0x20000004;
+
+    ((void (*)(void)) (address))();		// Go execute the loaded application
   }
 
 // run_application() ;

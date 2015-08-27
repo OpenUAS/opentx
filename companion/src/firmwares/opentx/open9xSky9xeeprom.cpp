@@ -160,12 +160,12 @@ t_Open9xArmExpoData_v208::operator ExpoData ()
   }
   c9x.swtch = open9xArmToSwitch(swtch);
   if (phase<0) {
-    c9x.phases= 1 << (-phase -1);
+    c9x.flightModes= 1 << (-phase -1);
   } else if (phase==0) {
-    c9x.phases=0;
+    c9x.flightModes=0;
   } else {
-    c9x.phases=63;
-    c9x.phases &= ~(1 << (phase -1));
+    c9x.flightModes=63;
+    c9x.flightModes &= ~(1 << (phase -1));
   }  
   c9x.weight = weight;
   return c9x;
@@ -190,14 +190,14 @@ t_Open9xArmExpoData_v210::operator ExpoData ()
   }
   c9x.swtch = open9xArmToSwitch(swtch);
   if (phase<0) {
-    c9x.phases= 1 << (-phase -1);
+    c9x.flightModes= 1 << (-phase -1);
   }
   else if (phase==0) {
-    c9x.phases=0;
+    c9x.flightModes=0;
   }
   else {
-    c9x.phases=63;
-    c9x.phases &= ~(1 << (phase -1));
+    c9x.flightModes=63;
+    c9x.flightModes &= ~(1 << (phase -1));
   }  
   c9x.weight = weight;
   getEEPROMZString(c9x.name, name, sizeof(name));
@@ -213,7 +213,7 @@ t_Open9xArmExpoData_v212::operator ExpoData ()
   // TODO c9x.curveMode=curveMode;
   // c9x.curveParam=curveParam;
   c9x.swtch = open9xArmToSwitch(swtch);
-  c9x.phases= phases;
+  c9x.flightModes= phases;
   c9x.weight = weight;
   getEEPROMZString(c9x.name, name, sizeof(name));
   return c9x;
@@ -292,14 +292,14 @@ t_Open9xArmMixData_v208::operator MixData ()
     c9x.mixWarn = mixWarn;
 
     if (phase<0) {
-      c9x.phases= 1 << (-phase -1);
+      c9x.flightModes= 1 << (-phase -1);
     }
     else if (phase==0) {
-      c9x.phases=0;
+      c9x.flightModes=0;
     }
     else {
-      c9x.phases=511;
-      c9x.phases &= ~(1 << (phase -1));
+      c9x.flightModes=511;
+      c9x.flightModes &= ~(1 << (phase -1));
     }
 
     c9x.sOffset = sOffset;
@@ -358,14 +358,14 @@ t_Open9xArmMixData_v209::operator MixData ()
     c9x.mixWarn = mixWarn;
 
     if (phase<0) {
-      c9x.phases= 1 << (-phase -1);
+      c9x.flightModes= 1 << (-phase -1);
     }
     else if (phase==0) {
-      c9x.phases=0;
+      c9x.flightModes=0;
     }
     else {
-      c9x.phases=511;
-      c9x.phases &= ~(1 << (phase -1));
+      c9x.flightModes=511;
+      c9x.flightModes &= ~(1 << (phase -1));
     }
 
     c9x.sOffset = sOffset;
@@ -424,14 +424,14 @@ t_Open9xArmMixData_v210::operator MixData ()
     c9x.mixWarn = mixWarn;
 
     if (phase<0) {
-      c9x.phases= 1 << (-phase -1);
+      c9x.flightModes= 1 << (-phase -1);
     }
     else if (phase==0) {
-      c9x.phases=0;
+      c9x.flightModes=0;
     }
     else {
-      c9x.phases=511;
-      c9x.phases &= ~(1 << (phase -1));
+      c9x.flightModes=511;
+      c9x.flightModes &= ~(1 << (phase -1));
     }
 
     c9x.sOffset = sOffset;
@@ -493,7 +493,7 @@ t_Open9xArmMixData_v212::operator MixData ()
     c9x.noExpo = noExpo;
     c9x.mltpx = (MltpxValue)mltpx;
     c9x.mixWarn = mixWarn;
-    c9x.phases = phases;
+    c9x.flightModes = phases;
     c9x.sOffset = sOffset;
     getEEPROMZString(c9x.name, name, sizeof(name));
   }
@@ -640,9 +640,9 @@ t_Open9xArmCustomFunctionData_v211::operator CustomFunctionData ()
 t_Open9xArmSwashRingData_v208::operator SwashRingData ()
 {
   SwashRingData c9x;
-  c9x.invertELE = invertELE;
-  c9x.invertAIL = invertAIL;
-  c9x.invertCOL = invertCOL;
+  c9x.elevatorWeight = invertELE ? -100 : 100;
+  c9x.aileronWeight = invertAIL ? -100 : 100;
+  c9x.collectiveWeight = invertCOL ? -100 : 100;
   c9x.type = type;
   c9x.collectiveSource = open9xArm208ToSource(collectiveSource);
   c9x.value = value;
@@ -652,9 +652,9 @@ t_Open9xArmSwashRingData_v208::operator SwashRingData ()
 t_Open9xArmSwashRingData_v209::operator SwashRingData ()
 {
   SwashRingData c9x;
-  c9x.invertELE = invertELE;
-  c9x.invertAIL = invertAIL;
-  c9x.invertCOL = invertCOL;
+  c9x.elevatorWeight = invertELE ? -100 : 100;
+  c9x.aileronWeight = invertAIL ? -100 : 100;
+  c9x.collectiveWeight = invertCOL ? -100 : 100;
   c9x.type = type;
   c9x.collectiveSource = open9xArm209ToSource(collectiveSource);
   c9x.value = value;
@@ -664,9 +664,9 @@ t_Open9xArmSwashRingData_v209::operator SwashRingData ()
 t_Open9xArmSwashRingData_v210::operator SwashRingData ()
 {
   SwashRingData c9x;
-  c9x.invertELE = invertELE;
-  c9x.invertAIL = invertAIL;
-  c9x.invertCOL = invertCOL;
+  c9x.elevatorWeight = invertELE ? -100 : 100;
+  c9x.aileronWeight = invertAIL ? -100 : 100;
+  c9x.collectiveWeight = invertCOL ? -100 : 100;
   c9x.type = type;
   c9x.collectiveSource = open9xArm210ToSource(collectiveSource);
   c9x.value = value;
@@ -683,21 +683,8 @@ t_Open9xArmFrSkyData_v210::operator FrSkyData ()
   c9x.blades = blades+2;
   c9x.currentSource=currentSource;
   c9x.screens[0].type = 1;
-  for (int i=0; i<4; i++) {
-    c9x.screens[0].body.bars[i].source = bars[i].source;
-    c9x.screens[0].body.bars[i].barMin = bars[i].barMin;
-    c9x.screens[0].body.bars[i].barMax = bars[i].barMax;
-  }
   c9x.rssiAlarms[0] = rssiAlarms[0].get(0);
   c9x.rssiAlarms[1] = rssiAlarms[1].get(1);
-
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      int i=line*2+col;
-      c9x.screens[1].body.lines[line].source[col] = lines[i];
-    }
-  }
-
   return c9x;
 }
 
@@ -711,21 +698,8 @@ t_Open9xArmFrSkyData_v211::operator FrSkyData ()
   c9x.blades = blades+2;
   c9x.currentSource=currentSource;
   c9x.screens[0].type = 1;
-  for (int i=0; i<4; i++) {
-    c9x.screens[0].body.bars[i].source = bars[i].source;
-    c9x.screens[0].body.bars[i].barMin = bars[i].barMin;
-    c9x.screens[0].body.bars[i].barMax = bars[i].barMax;
-  }
   c9x.rssiAlarms[0] = rssiAlarms[0].get(0);
   c9x.rssiAlarms[1] = rssiAlarms[1].get(1);
-
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      int i=line*2+col;
-      c9x.screens[1].body.lines[line].source[col] = lines[i];
-    }
-  }
-
   c9x.varioSource = varioSource;
   c9x.varioCenterMax = varioSpeedUpMin;
   c9x.varioCenterMin = varioSpeedDownMin;
@@ -808,13 +782,7 @@ t_Open9xArmModelData_v208::operator ModelData ()
   c9x.frsky.varioCenterMin = varioSpeedDownMin;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      c9x.frsky.screens[1].body.lines[line].source[col] = (col==0 ? (frskyLines[line] & 0x0f) : ((frskyLines[line] & 0xf0) / 16));
-      c9x.frsky.screens[1].body.lines[line].source[col] += (((frskyLinesXtra >> (4*line+2*col)) & 0x03) * 16);
-    }
-  }
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
@@ -898,13 +866,7 @@ t_Open9xArmModelData_v209::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      c9x.frsky.screens[1].body.lines[line].source[col] = (col==0 ? (frskyLines[line] & 0x0f) : ((frskyLines[line] & 0xf0) / 16));
-      c9x.frsky.screens[1].body.lines[line].source[col] += (((frskyLinesXtra >> (4*line+2*col)) & 0x03) * 16);
-    }
-  }
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
@@ -988,7 +950,7 @@ t_Open9xArmModelData_v210::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
@@ -1072,7 +1034,7 @@ t_Open9xArmModelData_v211::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
@@ -1159,6 +1121,6 @@ t_Open9xArmModelData_v212::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
+  c9x.moduleData[0].modelId = modelId;
   return c9x;
 }

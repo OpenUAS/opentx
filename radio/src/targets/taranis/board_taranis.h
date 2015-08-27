@@ -34,8 +34,8 @@
  *
  */
 
-#ifndef board_taranis_h
-#define board_taranis_h
+#ifndef _BOARD_TARANIS_H_
+#define _BOARD_TARANIS_H_
 
 #include "stddef.h"
 
@@ -43,14 +43,35 @@
 extern "C" {
 #endif
 
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_rcc.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_gpio.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_spi.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_rtc.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_pwr.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_dma.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_usart.h"
-#include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/CMSIS/Device/ST/STM32F2xx/Include/stm32f2xx.h"
+#if defined(REV9E)
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/CMSIS/Device/ST/STM32F4xx/Include/stm32f4xx.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_rcc.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_gpio.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_adc.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_spi.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_i2c.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_rtc.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_pwr.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_dma.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_usart.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_flash.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_dbgmcu.h"
+  #include "STM32F4xx_DSP_StdPeriph_Lib_V1.4.0/Libraries/STM32F4xx_StdPeriph_Driver/inc/misc.h"
+#else
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/CMSIS/Device/ST/STM32F2xx/Include/stm32f2xx.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_rcc.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_gpio.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_adc.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_spi.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_i2c.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_rtc.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_pwr.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_dma.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_usart.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_flash.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/stm32f2xx_dbgmcu.h"
+  #include "STM32F2xx_StdPeriph_Lib_V1.1.0/Libraries/STM32F2xx_StdPeriph_Driver/inc/misc.h"
+#endif
 
 #if !defined(SIMU)
   #include "STM32_USB-Host-Device_Lib_V2.1.0/Libraries/STM32_USB_Device_Library/Class/msc/inc/usbd_msc_core.h"
@@ -63,43 +84,55 @@ extern "C" {
 
 #include "hal.h"
 #include "aspi.h"
-#include "i2c.h"
 
 #if defined(__cplusplus) && !defined(SIMU)
 }
-#endif
-
-#if !defined(BOOT)
-#include "audio_driver.h"
 #endif
 
 #define FLASHSIZE          0x80000
 #define BOOTLOADER_SIZE    0x8000
 #define FIRMWARE_ADDRESS   0x08000000
 
-#define PERI1_FREQUENCY    30000000
-#define PERI2_FREQUENCY    60000000
+#if defined(REV9E)
+  #define PERI1_FREQUENCY  42000000
+  #define PERI2_FREQUENCY  84000000
+#else
+  #define PERI1_FREQUENCY  30000000
+  #define PERI2_FREQUENCY  60000000
+#endif
+
 #define TIMER_MULT_APB1    2
 #define TIMER_MULT_APB2    2
-
-// #define JACK_PPM_OUT()
-// #define JACK_PPM_IN()
 
 #define PIN_MODE_MASK      0x0003
 #define PIN_INPUT          0x0000
 #define PIN_OUTPUT         0x0001
 #define PIN_PERIPHERAL     0x0002
 #define PIN_ANALOG         0x0003
+
 #define PIN_PULL_MASK      0x000C
 #define PIN_PULLUP         0x0004
-#define PIN_NO_PULLUP      0x0000
-#define PIN_PULLDOWN       0x0008
-#define PIN_NO_PULLDOWN    0x0000
-#define PIN_PERI_MASK      0x00F0
-#define PIN_PUSHPULL       0x0000
-#define PIN_ODRAIN         0x8000
+
 #define PIN_PORT_MASK      0x0700
+#define PIN_PORTA          0x0000
+#define PIN_PORTB          0x0100
+#define PIN_PORTC          0x0200
+#define PIN_PORTD          0x0300
+#define PIN_PORTE          0x0400
+#define PIN_PORTF          0x0500
+
+#define PIN_PERI_MASK      0x00F0
+#define PIN_PER_1          0x0010
+#define PIN_PER_2          0x0020
+#define PIN_PER_3          0x0030
+#define PIN_PER_5          0x0050
+#define PIN_PER_6          0x0060
+#define PIN_PER_8          0x0080
+
 #define PIN_SPEED_MASK     0x6000
+#define PIN_OS25           0x2000
+#define PIN_OS50           0x4000
+#define PIN_OS100          0x6000
 
 void configure_pins( uint32_t pins, uint16_t config );
 
@@ -109,28 +142,39 @@ void configure_pins( uint32_t pins, uint16_t config );
 extern uint16_t sessionTimer;
 
 #define SLAVE_MODE()         (g_model.trainerMode == TRAINER_MODE_SLAVE)
-#define TRAINER_CONNECTED()  (GPIO_ReadInputDataBit(GPIOTRNDET, PIN_TRNDET) == Bit_RESET)
+#define TRAINER_CONNECTED()  (GPIO_ReadInputDataBit(TRAINER_GPIO_DETECT, TRAINER_GPIO_PIN_DETECT) == Bit_RESET)
 
-void delaysInit(void);
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 void delaysInit(void);
 void delay_01us(uint16_t nb);
+#ifdef __cplusplus
+}
+#endif
 
 // SD driver
+#if !defined(SIMU) || defined(SIMU_DISKIO)
+  uint32_t sdIsHC(void);
+  uint32_t sdGetSpeed(void);
+  #define SD_IS_HC()              (sdIsHC())
+  #define SD_GET_SPEED()          (sdGetSpeed())
+  #define SD_GET_FREE_BLOCKNR()   (sdGetFreeSectors())
+#else
+  #define SD_IS_HC()              (0)
+  #define SD_GET_SPEED()          (0)
+#endif
+
 #if defined(SIMU)
   #define sdInit()
   #define sdDone()
 #else
-  #define SD_IS_HC()              (1)
-  #define SD_GET_SIZE_MB()        (0)
-  #define SD_GET_BLOCKNR()        (0)
-  #define SD_GET_SPEED()          (0)
   void sdInit(void);
   void sdDone(void);
   void sdPoll10ms(void);
   #define sdMountPoll()
   uint32_t sdMounted(void);
-  #define SD_CARD_PRESENT()       (~SD_PRESENT_GPIO->IDR & SD_PRESENT_GPIO_Pin)
+  #define SD_CARD_PRESENT()       (~SD_GPIO_PRESENT->IDR & SD_GPIO_PIN_PRESENT)
 #endif
 
 // Flash Write driver
@@ -142,10 +186,20 @@ uint32_t isFirmwareStart(const void * buffer);
 uint32_t isBootloaderStart(const void * buffer);
 
 // Pulses driver
+#define INTERNAL_MODULE_ON()      GPIO_SetBits(INTMODULE_GPIO_PWR, INTMODULE_GPIO_PIN_PWR)
+#define INTERNAL_MODULE_OFF()     GPIO_ResetBits(INTMODULE_GPIO_PWR, INTMODULE_GPIO_PIN_PWR)
+#define EXTERNAL_MODULE_ON()      GPIO_SetBits(EXTMODULE_GPIO_PWR, EXTMODULE_GPIO_PIN_PWR)
+#define EXTERNAL_MODULE_OFF()     GPIO_ResetBits(EXTMODULE_GPIO_PWR, EXTMODULE_GPIO_PIN_PWR)
+#define IS_INTERNAL_MODULE_ON()   (GPIO_ReadInputDataBit(INTMODULE_GPIO_PWR, INTMODULE_GPIO_PIN_PWR) == Bit_SET)
+#define IS_EXTERNAL_MODULE_ON()   (GPIO_ReadInputDataBit(EXTMODULE_GPIO_PWR, EXTMODULE_GPIO_PIN_PWR) == Bit_SET)
 void init_no_pulses(uint32_t port);
 void disable_no_pulses(uint32_t port);
 void init_ppm( uint32_t module_index );
 void disable_ppm( uint32_t module_index );
+void set_external_ppm_parameters(uint32_t idleTime, uint32_t delay, uint32_t positive);
+#if defined(TARANIS_INTERNAL_PPM)
+  void set_internal_ppm_parameters(uint32_t idleTime, uint32_t delay, uint32_t positive);
+#endif
 void init_pxx( uint32_t module_index );
 void disable_pxx( uint32_t module_index );
 void init_dsm2( uint32_t module_index );
@@ -160,17 +214,14 @@ void init_cppm_on_heartbeat_capture(void);
 void stop_cppm_on_heartbeat_capture(void);
 void init_sbus_on_heartbeat_capture(void);
 void stop_sbus_on_heartbeat_capture(void);
+void set_trainer_ppm_parameters(uint32_t idleTime, uint32_t delay, uint32_t positive);
 
 // Keys driver
 void keysInit(void);
 uint32_t readKeys(void);
 uint32_t readTrims(void);
-#define TRIMS_PRESSED() (readTrims())
-#define KEYS_PRESSED()  (~readKeys())
-#define DBLKEYS_PRESSED_RGT_LFT(i) ((in & ((2<<KEY_PLUS) + (2<<KEY_MINUS))) == ((2<<KEY_PLUS) + (2<<KEY_MINUS)))
-#define DBLKEYS_PRESSED_UP_DWN(i)  ((in & ((2<<KEY_MENU) + (2<<KEY_PAGE))) == ((2<<KEY_MENU) + (2<<KEY_PAGE)))
-#define DBLKEYS_PRESSED_RGT_UP(i)  ((in & ((2<<KEY_ENTER) + (2<<KEY_MINUS))) == ((2<<KEY_ENTER) + (2<<KEY_MINUS)))
-#define DBLKEYS_PRESSED_LFT_DWN(i) ((in & ((2<<KEY_PAGE) + (2<<KEY_EXIT))) == ((2<<KEY_PAGE) + (2<<KEY_EXIT)))
+#define TRIMS_PRESSED()            (readTrims())
+#define KEYS_PRESSED()             (readKeys())
 
 #if defined(REV9E)
 // Rotary Encoder driver
@@ -185,8 +236,9 @@ void checkRotaryEncoder(void);
 void watchdogInit(unsigned int duration);
 #define wdt_enable(x)   watchdogInit(1500)
 #define wdt_reset()     IWDG->KR = 0xAAAA
-#define WAS_RESET_BY_WATCHDOG()   (RCC->CSR & (RCC_CSR_WDGRSTF | RCC_CSR_WWDGRSTF))
-#define WAS_RESET_BY_SOFTWARE()   (RCC->CSR & RCC_CSR_SFTRSTF)
+#define WAS_RESET_BY_SOFTWARE()               (RCC->CSR & RCC_CSR_SFTRSTF)
+#define WAS_RESET_BY_WATCHDOG()               (RCC->CSR & (RCC_CSR_WDGRSTF | RCC_CSR_WWDGRSTF))
+#define WAS_RESET_BY_WATCHDOG_OR_SOFTWARE()   (RCC->CSR & (RCC_CSR_WDGRSTF | RCC_CSR_WWDGRSTF | RCC_CSR_SFTRSTF))
 #endif
 
 // ADC driver
@@ -194,11 +246,7 @@ void adcInit(void);
 void adcRead(void);
 inline uint16_t getAnalogValue(uint32_t value);
 
-#if defined(REV3)
-  #define BATT_SCALE    120
-#else
-  #define BATT_SCALE    150
-#endif
+#define BATT_SCALE    150
 
 #if defined(__cplusplus) && !defined(SIMU)
 extern "C" {
@@ -207,26 +255,28 @@ extern "C" {
 // Power driver
 void pwrInit(void);
 uint32_t pwrCheck(void);
+void pwrOn(void);
 void pwrOff(void);
-#define UNEXPECTED_SHUTDOWN() (g_eeGeneral.unexpectedShutdown)
-#define INTERNAL_RF_ON()      GPIO_SetBits(GPIO_INT_RF_PWR, PIN_INT_RF_PWR)
-#define INTERNAL_RF_OFF()     GPIO_ResetBits(GPIO_INT_RF_PWR, PIN_INT_RF_PWR)
-#define EXTERNAL_MODULE_ON()      GPIO_SetBits(GPIO_EXT_RF_PWR, PIN_EXT_RF_PWR)
-#define EXTERNAL_MODULE_OFF()     GPIO_ResetBits(GPIO_EXT_RF_PWR, PIN_EXT_RF_PWR)
+#if defined(REV9E)
+uint32_t pwrPressed(void);
+uint32_t pwrPressedDuration(void);
+#endif
+#define UNEXPECTED_SHUTDOWN()   (g_eeGeneral.unexpectedShutdown)
 
 // Backlight driver
+void backlightInit(void);
 #if defined(REVPLUS)
-void turnBacklightOn(uint8_t level, uint8_t color);
-void turnBacklightOff(void);
-  #define setBacklight(xx)      turnBacklightOn(xx, g_eeGeneral.backlightColor)
-  #define __BACKLIGHT_ON        turnBacklightOn(g_eeGeneral.backlightBright, g_eeGeneral.backlightColor)
-  #define __BACKLIGHT_OFF       turnBacklightOff()
-  #define IS_BACKLIGHT_ON()     (TIM4->CCR4 != 0) || (TIM4->CCR2 != 0)
+  void turnBacklightOn(uint8_t level, uint8_t color);
+  void turnBacklightOff(void);
+  #define setBacklight(xx)         turnBacklightOn(xx, g_eeGeneral.backlightColor)
+  #define backlightEnable()        turnBacklightOn(g_eeGeneral.backlightBright, g_eeGeneral.backlightColor)
+  #define backlightDisable()       turnBacklightOff()
+  #define isBacklightEnable()      ((BACKLIGHT_TIMER->CCR4 != 0) || (BACKLIGHT_TIMER->CCR2 != 0))
 #else
-  #define setBacklight(xx)      TIM10->CCR1 = 100-xx
-  #define __BACKLIGHT_ON        TIM10->CCR1 = 100-g_eeGeneral.backlightBright
-  #define __BACKLIGHT_OFF       TIM10->CCR1 = 0
-  #define IS_BACKLIGHT_ON()     (TIM10->CCR1 != 0)
+  #define setBacklight(xx)         BACKLIGHT_TIMER->CCR1 = 100-xx
+  #define backlightEnable()        BACKLIGHT_TIMER->CCR1 = 100-g_eeGeneral.backlightBright
+  #define backlightDisable()       BACKLIGHT_TIMER->CCR1 = 0
+  #define isBacklightEnable()      (BACKLIGHT_TIMER->CCR1 != 0)
 #endif
 
 // USB driver
@@ -241,40 +291,73 @@ void usbStop(void);
 }
 #endif
 
-// EEPROM driver
-#if !defined(SIMU)
-#define eepromInit()          I2C_EE_Init()
-#define eeprom_read_block     I2C_EE_BufferRead
-#define eeWriteBlockCmp       I2C_EE_BufferWrite
-#else
-#define eepromInit()
-void eeWriteBlockCmp(const void *pointer_ram, uint16_t pointer_eeprom, size_t size);
-#endif
+// I2C driver: EEPROM + Audio Volume
+void i2cInit(void);
+void eepromReadBlock(uint8_t * buffer, uint32_t address, uint32_t size);
+void eepromWriteBlock(uint8_t * buffer, uint32_t address, uint32_t size);
 
 // Debug driver
 void debugPutc(const char c);
 
 // Telemetry driver
 void telemetryPortInit(uint32_t baudrate);
+void sportSendBuffer(uint8_t *buffer, uint32_t count);
+
+// Audio driver
+void audioInit(void) ;
+void audioEnd(void) ;
+void dacStart(void);
+void dacStop(void);
+void setSampleRate(uint32_t frequency);
+extern const int8_t volumeScale[];
+#define VOLUME_LEVEL_MAX  23
+#define VOLUME_LEVEL_DEF  12
+void setVolume(uint8_t volume);
 
 // Haptic driver
 void hapticInit(void);
 void hapticOff(void);
-#define HAPTIC_OFF()    hapticOff()
 #if defined(REVPLUS)
   void hapticOn(uint32_t pwmPercent);
 #else
   void hapticOn(void);
-  #define HAPTIC_ON()   hapticOn()
 #endif
 
-// UART3 driver
-#define DEBUG_BAUDRATE      115200
+// SERIAL_USART driver
+#define DEBUG_BAUDRATE                 115200
 void uart3Init(unsigned int mode, unsigned int protocol);
 void uart3Putc(const char c);
 #define telemetrySecondPortInit(protocol) uart3Init(UART_MODE_TELEMETRY, protocol)
 void uart3SbusInit(void);
 void uart3Stop(void);
+
+// BT driver
+#define BLUETOOTH_DEFAULT_BAUDRATE     115200
+#define BLUETOOTH_FACTORY_BAUDRATE     9600
+uint8_t bluetoothReady(void);
+void bluetoothInit(uint32_t baudrate);
+void bluetoothWrite(const void * buffer, int len);
+void bluetoothWriteString(const char * str);
+int bluetoothRead(void * buffer, int len);
+void bluetoothWakeup(void);
+
+// LCD driver
+void lcdInit(void);
+void lcdInitFinish(void);
+void lcdOff(void);
+
+// Top LCD driver
+#if defined(REV9E)
+void topLcdInit(void);
+void topLcdOff(void);
+void topLcdRefreshStart(void);
+void topLcdRefreshEnd(void);
+void setTopFirstTimer(int32_t value);
+void setTopSecondTimer(uint32_t value);
+void setTopRssi(uint32_t rssi);
+void setTopBatteryState(int state, uint8_t blinking);
+void setTopBatteryValue(uint32_t volts);
+#endif
 
 #define USART_FLAG_ERRORS (USART_FLAG_ORE | USART_FLAG_NE | USART_FLAG_FE | USART_FLAG_PE)
 

@@ -60,13 +60,14 @@ class TelemetryCustomScreen: public ModelPanel
 
   private slots:
     void on_screenType_currentIndexChanged(int index);
+    void scriptNameEdited();
     void customFieldChanged(int index);
     void barSourceChanged(int index);
     void barMinChanged(double value);
     void barMaxChanged(double value);
 
   protected:
-    void populateTelemetrySourceCB(QComboBox *b, unsigned int value, bool last, int hubproto);
+    void populateTelemetrySourceCB(QComboBox * b, RawSource & source, bool last=false);
 
   private:
     void updateBar(int line);
@@ -95,7 +96,7 @@ class TelemetrySensorPanel: public ModelPanel
     void on_type_currentIndexChanged(int index);
     void on_formula_currentIndexChanged(int index);
     void on_unit_currentIndexChanged(int index);
-    void on_prec_editingFinished();
+    void on_prec_valueChanged();
 
   protected:
     void updateSourcesComboBox(AutoComboBox * cb, bool negative);

@@ -1,6 +1,6 @@
 /*
  * Author - Bertrand Songis <bsongis@gmail.com>
- * 
+ *
  * Based on th9x -> http://code.google.com/p/th9x/
  *
  * This program is free software; you can redistribute it and/or modify
@@ -17,41 +17,23 @@
 #ifndef eeprom_interface_h
 #define eeprom_interface_h
 
-#include <inttypes.h>
 #include <string.h>
 #include <QString>
 #include <QStringList>
 #include <QList>
 #include <QtXml>
+#include <QComboBox>
 #include <iostream>
+#include "constants.h"
+#include "simulatorinterface.h"
 
-#if __GNUC__
-  #define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
-#else
-  #include "../targets/windows/winbuild.h"
-#endif
-
-#define EESIZE_STOCK          2048
-#define EESIZE_M128           4096
-#define EESIZE_GRUVIN9X       4096
-#define EESIZE_TARANIS        (32*1024)
-#define EESIZE_SKY9X          (128*4096)
-#define EESIZE_9XRPRO         (128*4096)
-#define EESIZE_RLC_MAX        EESIZE_TARANIS
-
-template<class t> t LIMIT(t mi, t x, t ma) { return std::min(std::max(mi, x), ma); }
-
-enum BoardEnum {
-  BOARD_STOCK,
-  BOARD_M128,
-  BOARD_MEGA2560,
-  BOARD_GRUVIN9X,
-  BOARD_SKY9X,
-  BOARD_9XRPRO,
-  BOARD_TARANIS,
-  BOARD_TARANIS_PLUS,
-  BOARD_TARANIS_X9E
-};
+#define EESIZE_STOCK           2048
+#define EESIZE_M128            4096
+#define EESIZE_GRUVIN9X        4096
+#define EESIZE_TARANIS         (32*1024)
+#define EESIZE_SKY9X           (128*4096)
+#define EESIZE_9XRPRO          (128*4096)
+#define EESIZE_MAX             EESIZE_9XRPRO
 
 QString getBoardName(BoardEnum board);
 
@@ -62,6 +44,7 @@ QString getBoardName(BoardEnum board);
 #define IS_9XRPRO(board)       (board==BOARD_9XRPRO)
 #define IS_TARANIS(board)      (board==BOARD_TARANIS  || board==BOARD_TARANIS_PLUS || board==BOARD_TARANIS_X9E)
 #define IS_TARANIS_PLUS(board) (board==BOARD_TARANIS_PLUS || board==BOARD_TARANIS_X9E)
+#define IS_TARANIS_X9E(board)  (board==BOARD_TARANIS_X9E)
 #define IS_ARM(board)          (IS_TARANIS(board) || IS_SKY9X(board))
 
 const uint8_t modn12x3[4][4]= {
@@ -69,21 +52,6 @@ const uint8_t modn12x3[4][4]= {
   {1, 3, 2, 4},
   {4, 2, 3, 1},
   {4, 3, 2, 1} };
-
-#define C9X_MAX_MODELS            60
-#define C9X_MAX_TIMERS            3
-#define C9X_MAX_FLIGHT_MODES      9
-#define C9X_MAX_MIXERS            64
-#define C9X_MAX_INPUTS            32
-#define C9X_MAX_EXPOS             64
-#define C9X_MAX_CURVES            32
-#define C9X_MAX_POINTS            17
-#define C9X_MAX_GVARS             9
-#define C9X_MAX_ENCODERS          2
-#define C9X_NUM_CHNOUT            32 // number of real output channels
-#define C9X_NUM_CSW               32 // number of custom switches
-#define C9X_MAX_CUSTOM_FUNCTIONS  64 // number of functions assigned to switches
-#define C9X_NUM_MODULES           2
 
 #define STK_RUD  1
 #define STK_ELE  2
@@ -146,6 +114,15 @@ enum TimerModes {
   TMRMODE_FIRST_SWITCH
 };
 
+enum FailsafeModes {
+  FAILSAFE_NOT_SET,
+  FAILSAFE_HOLD,
+  FAILSAFE_CUSTOM,
+  FAILSAFE_NOPULSES,
+  FAILSAFE_RECEIVER,
+  FAILSAFE_LAST = FAILSAFE_RECEIVER
+};
+
 #define TRIM_LH_L  0
 #define TRIM_LH_R  1
 #define TRIM_LV_DN 2
@@ -172,12 +149,7 @@ enum TimerModes {
 enum EnumKeys {
   KEY_MENU,
   KEY_EXIT,
-#if defined(PCBACT)
-  KEY_CLR,
-  KEY_PAGE,
-  KEY_PLUS,  /* Fake, used for rotary encoder */
-  KEY_MINUS, /* Fake, used for rotary encoder */
-#elif defined(PCBX9D)
+#if defined(PCBTARANIS)
   KEY_ENTER,
   KEY_PAGE,
   KEY_PLUS,
@@ -200,14 +172,6 @@ enum HeliSwashTypes {
  HELI_SWASH_TYPE_140,
  HELI_SWASH_TYPE_90
 };
-
-#define NUM_STICKS          4
-#define BOARD_9X_NUM_POTS   3
-#define C9X_NUM_POTS        5
-#define NUM_CAL_PPM         4
-#define NUM_CYC             3
-#define C9X_NUM_SWITCHES    10
-#define C9X_NUM_KEYS        6
 
 extern const char * switches9X[];
 extern const char * switchesX9D[];
@@ -329,9 +293,7 @@ class RawSourceRange
     {
     }
 
-    float getValue(int value) {
-      return min + float(value) * step;
-    }
+    float getValue(int value);
 
     int decimals;
     double min;
@@ -353,7 +315,7 @@ class RawSource {
     {
     }
 
-    RawSource(int value):
+    explicit RawSource(int value):
       type(RawSourceType(abs(value)/65536)),
       index(value >= 0 ? abs(value)%65536 : -(abs(value)%65536))
     {
@@ -370,10 +332,10 @@ class RawSource {
       return index >= 0 ? (type * 65536 + index) : -(type * 65536 - index);
     }
 
-    QString toString(const ModelData * model = NULL);
-    
+    QString toString(const ModelData * model = NULL) const;
+
     RawSourceRange getRange(const ModelData * model, const GeneralSettings & settings, unsigned int flags=0) const;
-    
+
     bool operator == ( const RawSource & other) {
       return (this->type == other.type) && (this->index == other.index);
     }
@@ -383,6 +345,8 @@ class RawSource {
     }
 
     bool isTimeBased() const;
+    bool isPot() const;
+    bool isSlider() const;
 
     RawSourceType type;
     int index;
@@ -427,7 +391,7 @@ class RawSwitch {
       return index >= 0 ? (type * 256 + index) : -(type * 256 - index);
     }
 
-    QString toString();
+    QString toString() const;
 
     bool operator== ( const RawSwitch& other) {
       return (this->type == other.type) && (this->index == other.index);
@@ -463,7 +427,7 @@ class CurveReference {
     CurveRefType type;
     int value;
 
-    QString toString();
+    QString toString() const;
 };
 
 enum InputMode {
@@ -481,7 +445,7 @@ class ExpoData {
     unsigned int mode;
     unsigned int chn;
     RawSwitch swtch;
-    unsigned int phases;        // -5=!FP4, 0=normal, 5=FP4
+    unsigned int flightModes;        // -5=!FP4, 0=normal, 5=FP4
     int  weight;
     int offset;
     CurveReference curve;
@@ -504,14 +468,14 @@ class CurveData {
       CURVE_TYPE_LAST = CURVE_TYPE_CUSTOM
     };
 
-    CurveData() { clear(5); }
-
+    CurveData();
+    void clear(int count);
+    bool isEmpty() const;
     CurveType type;
     bool smooth;
     int  count;
     CurvePoint points[C9X_MAX_POINTS];
     char name[6+1];
-    void clear(int count) { memset(this, 0, sizeof(CurveData)); this->count = count; }
 };
 
 class LimitData {
@@ -525,9 +489,10 @@ class LimitData {
     bool  symetrical;
     char  name[6+1];
     CurveReference curve;
-    QString minToString();
-    QString maxToString();
-    QString offsetToString();
+    QString minToString() const;
+    QString maxToString() const;
+    QString offsetToString() const;
+    QString revertToString() const;
     void clear();
 };
 
@@ -555,7 +520,7 @@ class MixData {
     bool noExpo;
     MltpxValue mltpx;          // multiplex method 0=+ 1=* 2=replace
     unsigned int mixWarn;           // mixer warning
-    unsigned int phases;             // -5=!FP4, 0=normal, 5=FP4
+    unsigned int flightModes;             // -5=!FP4, 0=normal, 5=FP4
     int    sOffset;
     char   name[MIXDATA_NAME_LEN+1];
 
@@ -612,10 +577,9 @@ class LogicalSwitchData { // Logical Switches data
     unsigned int duration;
     int andsw;
     void clear() { memset(this, 0, sizeof(LogicalSwitchData)); }
-    CSFunctionFamily getFunctionFamily();
-    unsigned int getRangeFlags();
-    QString funcToString();
-    QString toString(const ModelData & model, const GeneralSettings & settings);
+    CSFunctionFamily getFunctionFamily() const;
+    unsigned int getRangeFlags() const;
+    QString funcToString() const;
 };
 
 enum AssignFunc {
@@ -641,6 +605,7 @@ enum AssignFunc {
   FuncLogs,
   FuncVolume,
   FuncBacklight,
+  FuncScreenshot,
   FuncBackgroundMusic,
   FuncBackgroundMusicPause,
   FuncAdjustGV1,
@@ -660,10 +625,15 @@ class CustomFunctionData { // Function Switches data
     unsigned int adjustMode;
     int repeatParam;
     void clear();
-    QString funcToString();
-    QString paramToString();
-    QString repeatToString();
-    QStringList toStringList();
+    QString funcToString() const;
+    QString paramToString(const ModelData * model) const;
+    QString repeatToString() const;
+    QString enabledToString() const;
+
+    static void populateResetParams(const ModelData * model, QComboBox * b, unsigned int value);
+    static void populatePlaySoundParams(QStringList & qs);
+    static void populateHapticParams(QStringList & qs);
+
 };
 
 class FlightModeData {
@@ -684,11 +654,13 @@ class FlightModeData {
 class SwashRingData { // Swash Ring data
   public:
     SwashRingData() { clear(); }
-    bool      invertELE;
-    bool      invertAIL;
-    bool      invertCOL;
+    int elevatorWeight;
+    int aileronWeight;
+    int collectiveWeight;
     unsigned int  type;
     RawSource collectiveSource;
+    RawSource aileronSource;
+    RawSource elevatorSource;
     unsigned int  value;
     void clear() { memset(this, 0, sizeof(SwashRingData)); }
 };
@@ -726,13 +698,13 @@ class FrSkyChannelData {
 };
 
 struct FrSkyBarData {
-  unsigned int   source;
-  unsigned int   barMin;           // minimum for bar display
-  unsigned int   barMax;           // ditto for max display (would usually = ratio)
+  RawSource source;
+  unsigned int barMin;           // minimum for bar display
+  unsigned int barMax;           // ditto for max display (would usually = ratio)
 };
 
 struct FrSkyLineData {
-  unsigned int   source[3];
+  RawSource source[3];
 };
 
 struct TelemetryScriptData {
@@ -750,7 +722,7 @@ class FrSkyScreenData {
   public:
     FrSkyScreenData() { clear(); }
 
-    typedef union {
+    typedef struct {
       FrSkyBarData bars[4];
       FrSkyLineData lines[4];
       TelemetryScriptData script;
@@ -759,7 +731,7 @@ class FrSkyScreenData {
     unsigned int type;
     FrSkyScreenBody body;
 
-    void clear() { memset(this, 0, sizeof(FrSkyScreenData)); }
+    void clear();
 };
 
 enum TelemetryVarioSources {
@@ -801,6 +773,7 @@ class FrSkyData {
     FrSkyScreenData screens[4];
     FrSkyRSSIAlarm rssiAlarms[2];
     unsigned int varioSource;
+    bool varioCenterSilent;
     int varioMin;
     int varioCenterMin;    // if increment in 0.2m/s = 3.0m/s max
     int varioCenterMax;
@@ -808,6 +781,7 @@ class FrSkyData {
     bool mAhPersistent;
     unsigned int storedMah;
     int fasOffset;
+    bool ignoreSensorIds;
 
     void clear();
 };
@@ -824,6 +798,12 @@ class MavlinkData {
 
 class TimerData {
   public:
+    enum CountDownMode {
+      COUNTDOWN_SILENT,
+      COUNTDOWN_BEEPS,
+      COUNTDOWN_VOICE,
+      COUNTDOWN_HAPTIC
+    };
     TimerData() { clear(); }
     RawSwitch    mode;
     char         name[TIMER_NAME_LEN+1];
@@ -854,19 +834,30 @@ enum Protocol {
   PROTO_LAST
 };
 
+enum TrainerProtocol {
+  MASTER_JACK,
+  SLAVE_JACK,
+  MASTER_SBUS_MODULE,
+  MASTER_CPPM_MODULE,
+  MASTER_SBUS_BATT_COMPARTMENT
+};
+
 class ModuleData {
   public:
     ModuleData() { clear(); }
+    unsigned int modelId;
     int          protocol;
+    int          subprotocol;
     unsigned int channelsStart;
     int          channelsCount; // 0=8 channels
     unsigned int failsafeMode;
     int          failsafeChannels[C9X_NUM_CHNOUT];
     int          ppmDelay;
     bool         ppmPulsePol;           // false = positive
+    bool         ppmOutputType;         // false = open drain, true = push pull 
     int          ppmFrameLength;
     void clear() { memset(this, 0, sizeof(ModuleData)); }
-    QString polarityToString() { return ppmPulsePol ? QObject::tr("Positive") : QObject::tr("Negative"); }
+    QString polarityToString() const { return ppmPulsePol ? QObject::tr("Positive") : QObject::tr("Negative"); } // TODO ModelPrinter
 };
 
 #define C9X_MAX_SCRIPTS       7
@@ -887,29 +878,45 @@ class SensorData {
 
     enum
     {
-      TYPE_CUSTOM,
-      TYPE_CALCULATED
+      TELEM_TYPE_CUSTOM,
+      TELEM_TYPE_CALCULATED
     };
 
     enum
     {
-      FORMULA_ADD,
-      FORMULA_AVERAGE,
-      FORMULA_MIN,
-      FORMULA_MAX,
-      FORMULA_MULTIPLY,
-      FORMULA_CELL,
-      FORMULA_CONSUMPTION,
-      FORMULA_DIST
+      TELEM_FORMULA_ADD,
+      TELEM_FORMULA_AVERAGE,
+      TELEM_FORMULA_MIN,
+      TELEM_FORMULA_MAX,
+      TELEM_FORMULA_MULTIPLY,
+      TELEM_FORMULA_TOTALIZE,
+      TELEM_FORMULA_CELL,
+      TELEM_FORMULA_CONSUMPTION,
+      TELEM_FORMULA_DIST,
+      TELEM_FORMULA_LAST = TELEM_FORMULA_DIST
     };
 
     enum {
+      TELEM_CELL_INDEX_LOWEST,
+      TELEM_CELL_INDEX_1,
+      TELEM_CELL_INDEX_2,
+      TELEM_CELL_INDEX_3,
+      TELEM_CELL_INDEX_4,
+      TELEM_CELL_INDEX_5,
+      TELEM_CELL_INDEX_6,
+      TELEM_CELL_INDEX_HIGHEST,
+      TELEM_CELL_INDEX_DELTA,
+    };
+
+    enum
+    {
       UNIT_RAW,
       UNIT_VOLTS,
       UNIT_AMPS,
       UNIT_MILLIAMPS,
       UNIT_KTS,
       UNIT_METERS_PER_SECOND,
+      UNIT_FEET_PER_SECOND,
       UNIT_KMH,
       UNIT_MPH,
       UNIT_METERS,
@@ -919,15 +926,18 @@ class SensorData {
       UNIT_PERCENT,
       UNIT_MAH,
       UNIT_WATTS,
-      UNIT_DBM,
+      UNIT_DB,
       UNIT_RPMS,
       UNIT_G,
       UNIT_DEGREE,
+      UNIT_MILLILITERS,
+      UNIT_FLOZ,
       UNIT_HOURS,
       UNIT_MINUTES,
       UNIT_SECONDS,
       // FrSky format used for these fields, could be another format in the future
-      UNIT_CELLS,
+      UNIT_FIRST_VIRTUAL,
+      UNIT_CELLS = UNIT_FIRST_VIRTUAL,
       UNIT_DATETIME,
       UNIT_GPS,
       UNIT_GPS_LONGITUDE,
@@ -949,13 +959,15 @@ class SensorData {
     char label[4+1];
     unsigned int unit;
     unsigned int prec;
-    unsigned int inputFlags;
+    bool autoOffset;
+    bool filter;
     bool logs;
     bool persistent;
+    bool onlyPositive;
 
     // for custom sensors
     unsigned int ratio;
-    unsigned int offset;
+    int offset;
 
     // for consumption
     unsigned int amps;
@@ -987,6 +999,11 @@ class ModelData {
     void removeInput(const int idx);
 
     bool isInputValid(const unsigned int idx) const;
+    bool hasExpos(uint8_t inputIdx) const;
+    bool hasMixes(uint8_t output) const;
+
+    QVector<const ExpoData *> expos(int input) const;
+    QVector<const MixData *> mixes(int channel) const;
 
     bool      used;
     char      name[12+1];
@@ -1014,10 +1031,10 @@ class ModelData {
     CustomFunctionData customFn[C9X_MAX_CUSTOM_FUNCTIONS];
     SwashRingData swashRingData;
     unsigned int thrTraceSrc;
-    unsigned int modelId;
-    unsigned int switchWarningStates;
+    uint64_t switchWarningStates;
     unsigned int switchWarningEnable;
-    unsigned int nPotsToWarn;
+    unsigned int potsWarningMode;
+    bool potsWarningEnabled[C9X_NUM_POTS];
     int          potPosition[C9X_NUM_POTS];
     bool         displayChecklist;
     // TODO structure
@@ -1038,7 +1055,7 @@ class ModelData {
     SensorData sensorData[C9X_MAX_SENSORS];
 
     void clear();
-    bool isempty();
+    bool isEmpty() const;
     void setDefaultInputs(const GeneralSettings & settings);
     void setDefaultMixes(const GeneralSettings & settings);
     void setDefaultValues(unsigned int id, const GeneralSettings & settings);
@@ -1089,12 +1106,23 @@ class GeneralSettings {
       BEEPER_ALL = 1
     };
 
+    enum PotConfig {
+      POT_NONE,
+      POT_WITH_DETENT,
+      POT_MULTIPOS_SWITCH,
+      POT_WITHOUT_DETENT
+    };
+
+    enum SliderConfig {
+      SLIDER_NONE,
+      SLIDER_WITH_DETENT
+    };
+
     enum SwitchConfig {
-      SWITCH_DEFAULT,
+      SWITCH_NONE,
       SWITCH_TOGGLE,
       SWITCH_2POS,
       SWITCH_3POS,
-      SWITCH_2x2POS
     };
 
     GeneralSettings();
@@ -1126,7 +1154,8 @@ class GeneralSettings {
     bool      enableTelemetryAlarm;
     BeeperMode hapticMode;
     unsigned int   stickMode; // TODO enum
-    int    timezone;
+    int       timezone;
+    bool      adjustRTC;
     bool      optrexDisplay;
     unsigned int    inactivityTimer;
     bool      minuteBeep;
@@ -1164,6 +1193,8 @@ class GeneralSettings {
     unsigned int mAhWarn;
     unsigned int mAhUsed;
     unsigned int globalTimer;
+    bool bluetoothEnable;
+    char bluetoothName[10+1];
     unsigned int btBaudrate;
     unsigned int sticksGain;
     unsigned int rotarySteps;
@@ -1181,12 +1212,15 @@ class GeneralSettings {
     unsigned int mavbaud;
     unsigned int switchUnlockStates;
     unsigned int hw_uartMode;
-    unsigned int potsType[8];
     unsigned int backlightColor;
     CustomFunctionData customFn[C9X_MAX_CUSTOM_FUNCTIONS];
-    unsigned int switchConfig[8];
-    char switchNames[32][3+1];
-    char anaNames[32][3+1];
+    char switchName[18][3+1];
+    unsigned int switchConfig[18];
+    char stickName[4][3+1];
+    char potName[4][3+1];
+    unsigned int potConfig[4];
+    char sliderName[4][3+1];
+    unsigned int sliderConfig[4];
 
     struct SwitchInfo {
       SwitchInfo(unsigned int index, unsigned int position):
@@ -1197,42 +1231,18 @@ class GeneralSettings {
       unsigned int index;
       unsigned int position;
     };
-    
+
     static SwitchInfo switchInfoFromSwitchPositionTaranis(unsigned int index);
     bool switchPositionAllowedTaranis(int index) const;
-
-    static unsigned int switchDefaultConfigTaranis(unsigned int index)
-    {
-      if (index == 5)
-        return SWITCH_2POS;
-      else if (index == 7)
-        return SWITCH_TOGGLE;
-      else
-        return SWITCH_3POS;
-    }
-
-    unsigned int switchConfigTaranis(unsigned int index) const
-    {
-      unsigned int result = switchConfig[index];
-      if (result == SWITCH_DEFAULT)
-        result = switchDefaultConfigTaranis(index);
-      return result;
-    }
-
-    bool isSwitchWarningAllowedTaranis(unsigned int index) const
-    {
-      if (index < 8)
-        return switchConfigTaranis(index) != SWITCH_TOGGLE;
-      else
-        return switchConfig[index-8] == SWITCH_2x2POS;
-    }
-
+    bool switchSourceAllowedTaranis(int index) const;
+    bool isPotAvailable(int index) const;
+    bool isSliderAvailable(int index) const;
 };
 
 class RadioData {
-  public:   
+  public:
     GeneralSettings generalSettings;
-    ModelData models[C9X_MAX_MODELS];    
+    ModelData models[C9X_MAX_MODELS];
 };
 
 enum Capability {
@@ -1252,6 +1262,7 @@ enum Capability {
   MultiLangVoice,
   ModelImage,
   Pots,
+  Sliders,
   Switches,
   SwitchesPositions,
   LogicalSwitches,
@@ -1274,7 +1285,6 @@ enum Capability {
   Haptic,
   HasBeeper,
   ModelTrainerEnable,
-  Timer2ThrTrig,
   HasExpoNames,
   HasNoExpo,
   HasMixerNames,
@@ -1287,7 +1297,6 @@ enum Capability {
   OptrexDisplay,
   PPMExtCtrl,
   PPMFrameLength,
-  DSM2Indexes,
   Telemetry,
   TelemetryUnits,
   TelemetryBars,
@@ -1300,7 +1309,6 @@ enum Capability {
   NoTelemetryProtocol,
   TelemetryCustomScreens,
   TelemetryCustomScreensFieldsPerLine,
-  TelemetryTimeshift,
   TelemetryMaxMultiplier,
   HasVario,
   HasVarioSink,
@@ -1322,8 +1330,11 @@ enum Capability {
   LCDWidth,
   GetThrSwitch,
   HasDisplayText,
+  GlobalFunctions,
   VirtualInputs,
   TrainerInputs,
+  RtcTime,
+  SportTelemetry,
   LuaScripts,
   LuaInputsPerScript,
   LuaOutputsPerScript,
@@ -1337,6 +1348,8 @@ enum Capability {
   MavlinkTelemetry,
   HasInputDiff,
   HasMixerExpo,
+  MixersMonitor,
+  HasBatMeterRange
 };
 
 class SimulatorInterface;
@@ -1356,15 +1369,15 @@ class EEPROMInterface
     virtual bool load(RadioData &radioData, const uint8_t *eeprom, int size) = 0;
 
     virtual bool loadBackup(RadioData &radioData, uint8_t *eeprom, int esize, int index) = 0;
-    
+
     virtual bool loadxml(RadioData &radioData, QDomDocument &doc) = 0;
 
     virtual int save(uint8_t *eeprom, RadioData &radioData, uint32_t variant=0, uint8_t version=0) = 0;
 
-    virtual int getSize(ModelData &) = 0;
-    
-    virtual int getSize(GeneralSettings &) = 0;
-    
+    virtual int getSize(const ModelData &) = 0;
+
+    virtual int getSize(const GeneralSettings &) = 0;
+
     virtual int isAvailable(Protocol proto, int port=0) = 0;
 
     virtual const int getEEpromSize() = 0;
@@ -1576,11 +1589,6 @@ class Firmware {
 
     virtual bool isTelemetrySourceAvailable(int source) = 0;
 
-    virtual SimulatorInterface * getSimulator()
-    {
-      return NULL;
-    }
-
   public:
     QList<const char *> languages;
     QList<const char *> ttslanguages;
@@ -1610,6 +1618,8 @@ inline Firmware * GetCurrentFirmware()
   return current_firmware_variant;
 }
 
+SimulatorInterface *getCurrentFirmwareSimulator();
+
 inline EEPROMInterface * GetEepromInterface()
 {
   return GetCurrentFirmware()->getEepromInterface();
@@ -1621,5 +1631,7 @@ inline int divRoundClosest(const int n, const int d)
 }
 
 #define CHECK_IN_ARRAY(T, index) ((unsigned int)index < (unsigned int)(sizeof(T)/sizeof(T[0])) ? T[(unsigned int)index] : "???")
+
+SimulatorInterface * GetCurrentFirmwareSimulator();
 
 #endif

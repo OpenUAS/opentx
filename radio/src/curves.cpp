@@ -36,7 +36,7 @@
 
 #include "opentx.h"
 
-#if defined(PCBTARANIS)
+#if defined(XCURVES)
 int8_t *curveEnd[MAX_CURVES];
 void loadCurves()
 {
@@ -48,6 +48,11 @@ void loadCurves()
         break;
       case CURVE_TYPE_CUSTOM:
         tmp += 8+2*g_model.curves[i].points;
+        break;
+      default:
+        TRACE("Wrong curve type! Fixing...");
+        g_model.curves[i].type = CURVE_TYPE_STANDARD;
+        tmp += 5+g_model.curves[i].points;
         break;
     }
     curveEnd[i] = tmp;
@@ -81,7 +86,7 @@ CurveInfo curveInfo(uint8_t idx)
 }
 #endif
 
-#if defined(PCBTARANIS)
+#if defined(XCURVES)
 #define CUSTOM_POINT_X(points, count, idx) ((idx)==0 ? -100 : (((idx)==(count)-1) ? 100 : points[(count)+(idx)-1]))
 s32 compute_tangent(CurveInfo *crv, int8_t *points, int i)
 {
@@ -200,7 +205,7 @@ int16_t hermite_spline(int16_t x, uint8_t idx)
 
 int intpol(int x, uint8_t idx) // -100, -75, -50, -25, 0 ,25 ,50, 75, 100
 {
-#if defined(PCBTARANIS)
+#if defined(XCURVES)
   CurveInfo &crv = g_model.curves[idx];
   int8_t *points = curveAddress(idx);
   uint8_t count = crv.points+5;
@@ -243,8 +248,7 @@ int intpol(int x, uint8_t idx) // -100, -75, -50, -25, 0 ,25 ,50, 75, 100
   return erg / 25; // 100*D5/RESX;
 }
 
-#if defined(CURVES)
-#if defined(PCBTARANIS)
+#if defined(CURVES) && defined(XCURVES)
 int applyCurve(int x, CurveRef & curve)
 {
   switch (curve.type) {
@@ -299,14 +303,16 @@ int applyCurve(int x, CurveRef & curve)
 
 int applyCustomCurve(int x, uint8_t idx)
 {
+  if (idx >= MAX_CURVES)
+    return 0;
+
   CurveInfo &crv = g_model.curves[idx];
   if (crv.smooth)
     return hermite_spline(x, idx);
   else
     return intpol(x, idx);
 }
-
-#else
+#elif defined(CURVES)
 int applyCurve(int x, int8_t idx)
 {
   /* already tried to have only one return at the end */
@@ -334,7 +340,6 @@ int applyCurve(int x, int8_t idx)
   }
   return applyCustomCurve(x, idx - CURVE_BASE);
 }
-#endif
 #endif
 
 // #define EXTENDED_EXPO

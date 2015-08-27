@@ -87,14 +87,14 @@ t_Open9xGruvin9xMixData_v207::operator MixData ()
     c9x.mixWarn = mixWarn;
 
     if (phase<0) {
-      c9x.phases= 1 << (-phase -1);
+      c9x.flightModes= 1 << (-phase -1);
     }
     else if (phase==0) {
-      c9x.phases=0;
+      c9x.flightModes=0;
     }
     else {
-      c9x.phases=63;
-      c9x.phases &= ~(1 << (phase -1));
+      c9x.flightModes=63;
+      c9x.flightModes &= ~(1 << (phase -1));
     }
     c9x.sOffset = sOffset;
   }
@@ -155,14 +155,14 @@ t_Open9xGruvin9xMixData_v209::operator MixData ()
     c9x.mixWarn = mixWarn;
 
     if (phase<0) {
-      c9x.phases= 1 << (-phase -1);
+      c9x.flightModes= 1 << (-phase -1);
     }
     else if (phase==0) {
-      c9x.phases=0;
+      c9x.flightModes=0;
     }
     else {
-      c9x.phases=63;
-      c9x.phases &= ~(1 << (phase -1));
+      c9x.flightModes=63;
+      c9x.flightModes &= ~(1 << (phase -1));
     }    
     c9x.sOffset = sOffset;
   }
@@ -222,7 +222,7 @@ t_Open9xGruvin9xMixData_v211::operator MixData ()
     c9x.noExpo = noExpo;
     c9x.mltpx = (MltpxValue)mltpx;
     c9x.mixWarn = mixWarn;
-    c9x.phases = phases;
+    c9x.flightModes = phases;
     c9x.sOffset = sOffset;
   }
   return c9x;
@@ -410,9 +410,9 @@ t_Open9xGruvin9xCustomFunctionData_v210::operator CustomFunctionData ()
 t_Open9xGruvin9xSwashRingData_v208::operator SwashRingData ()
 {
   SwashRingData c9x;
-  c9x.invertELE = invertELE;
-  c9x.invertAIL = invertAIL;
-  c9x.invertCOL = invertCOL;
+  c9x.elevatorWeight = invertELE ? -100 : 100;
+  c9x.aileronWeight = invertAIL ? -100 : 100;
+  c9x.collectiveWeight = invertCOL ? -100 : 100;
   c9x.type = type;
   c9x.collectiveSource = open9xV4207ToSource(collectiveSource);
   c9x.value = value;
@@ -422,9 +422,9 @@ t_Open9xGruvin9xSwashRingData_v208::operator SwashRingData ()
 t_Open9xGruvin9xSwashRingData_v209::operator SwashRingData ()
 {
   SwashRingData c9x;
-  c9x.invertELE = invertELE;
-  c9x.invertAIL = invertAIL;
-  c9x.invertCOL = invertCOL;
+  c9x.elevatorWeight = invertELE ? -100 : 100;
+  c9x.aileronWeight = invertAIL ? -100 : 100;
+  c9x.collectiveWeight = invertCOL ? -100 : 100;
   c9x.type = type;
   c9x.collectiveSource = open9xV4209ToSource(collectiveSource);
   c9x.value = value;
@@ -501,14 +501,7 @@ t_Open9xGruvin9xModelData_v207::operator ModelData ()
   c9x.frsky = frsky;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      c9x.frsky.screens[1].body.lines[line].source[col] = (col==0 ? (frskyLines[line] & 0x0f) : ((frskyLines[line] & 0xf0) / 16));
-      c9x.frsky.screens[1].body.lines[line].source[col] += (((frskyLinesXtra >> (4*line+2*col)) & 0x03) * 16);
-    }
-  }
-
+  c9x.moduleData[0].modelId = modelId;
   return c9x;
 }
 
@@ -587,17 +580,10 @@ t_Open9xGruvin9xModelData_v208::operator ModelData ()
   c9x.frsky.varioCenterMin = varioSpeedDownMin;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      c9x.frsky.screens[1].body.lines[line].source[col] = (col==0 ? (frskyLines[line] & 0x0f) : ((frskyLines[line] & 0xf0) / 16));
-      c9x.frsky.screens[1].body.lines[line].source[col] += (((frskyLinesXtra >> (4*line+2*col)) & 0x03) * 16);
-    }
-  }
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
-
   return c9x;
 }
 
@@ -677,17 +663,10 @@ t_Open9xGruvin9xModelData_v209::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
-  for (int line=0; line<4; line++) {
-    for (int col=0; col<2; col++) {
-      c9x.frsky.screens[1].body.lines[line].source[col] = (col==0 ? (frskyLines[line] & 0x0f) : ((frskyLines[line] & 0xf0) / 16));
-      c9x.frsky.screens[1].body.lines[line].source[col] += (((frskyLinesXtra >> (4*line+2*col)) & 0x03) * 16);
-    }
-  }
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
-
   return c9x;
 }
 
@@ -767,7 +746,7 @@ t_Open9xGruvin9xModelData_v210::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
+  c9x.moduleData[0].modelId = modelId;
   for (int i=0; i<16; i++) {
     c9x.limitData[i].ppmCenter = servoCenter[i];
   }
@@ -854,6 +833,6 @@ t_Open9xGruvin9xModelData_v211::operator ModelData ()
   c9x.switchWarningStates = switchWarningStates;
   c9x.moduleData[0].ppmFrameLength = ppmFrameLength;
   c9x.thrTraceSrc = thrTraceSrc;
-  c9x.modelId = modelId;
+  c9x.moduleData[0].modelId = modelId;
   return c9x;
 }

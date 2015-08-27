@@ -35,7 +35,7 @@
  */
 
 #include "opentx.h"
-#include "FatFs/ff.h"
+#include "ff.h"
 
 FIL g_oLogFile = {0};
 const pm_char * g_logError = NULL;
@@ -49,7 +49,7 @@ uint8_t logDelay;
 
 #define get3PosState(sw) (switchState(SW_ ## sw ## 0) ? -1 : (switchState(SW_ ## sw ## 2) ? 1 : 0))
 
-const pm_char * openLogs()
+const pm_char *openLogs()
 {
   // Determine and set log file filename
   FRESULT result;
@@ -59,8 +59,11 @@ const pm_char * openLogs()
   if (!sdMounted())
     return STR_NO_SDCARD;
 
-  strcpy_P(filename, STR_LOGS_PATH);
+  if (sdGetFreeSectors() == 0)
+    return STR_SDCARD_FULL;
 
+  // check and create folder here
+  strcpy_P(filename, STR_LOGS_PATH);
   result = f_opendir(&folder, filename);
   if (result != FR_OK) {
     if (result == FR_NO_PATH)
@@ -149,11 +152,7 @@ void writeHeader()
 #endif
 
 #if defined(FRSKY)
-#if defined(CPUARM) && defined(SWR)
-  f_puts("SWR,RSSI,", &g_oLogFile);
-#elif defined(CPUARM)
-  f_puts("RSSI,", &g_oLogFile);
-#else
+#if !defined(CPUARM)
   f_puts("Buffer,RX,TX,A1,A2,", &g_oLogFile);
 #if defined(FRSKY_HUB)
   if (IS_USR_PROTO_FRSKY_HUB()) {
@@ -171,12 +170,12 @@ void writeHeader()
 
 #if defined(CPUARM)
   char label[TELEM_LABEL_LEN+7];
-  for (int i=0; i<TELEM_VALUES_MAX; i++) {
+  for (int i=0; i<MAX_SENSORS; i++) {
     TelemetrySensor & sensor = g_model.telemetrySensors[i];
     if (sensor.logs) {
       memset(label, 0, sizeof(label));
       zchar2str(label, sensor.label, TELEM_LABEL_LEN);
-      if (sensor.unit != UNIT_RAW) {
+      if (sensor.unit != UNIT_RAW && sensor.unit != UNIT_GPS && sensor.unit != UNIT_DATETIME) {
         strcat(label, "(");
         strncat(label, STR_VTELEMUNIT+1+3*sensor.unit, 3);
         strcat(label, ")");
@@ -189,13 +188,21 @@ void writeHeader()
 #endif
 
 #if defined(PCBTARANIS)
-  f_puts("Rud,Ele,Thr,Ail,S1,S2,S3,LS,RS,SA,SB,SC,SD,SE,SF,SG,SH\n", &g_oLogFile);
+  for (uint8_t i=1; i<NUM_STICKS+NUM_POTS+1; i++) {
+    const char * p = STR_VSRCRAW + i * STR_VSRCRAW[0] + 2;
+    for (uint8_t j=0; j<STR_VSRCRAW[0]-1; ++j) {
+      if (!*p) break;
+      f_putc(*p, &g_oLogFile);
+      ++p;
+    }
+    f_putc(',', &g_oLogFile);
+  }
+  f_puts("SA,SB,SC,SD,SE,SF,SG,SH\n", &g_oLogFile);
 #else
   f_puts("Rud,Ele,Thr,Ail,P1,P2,P3,THR,RUD,ELE,3POS,AIL,GEA,TRN\n", &g_oLogFile);
 #endif
 }
 
-// TODO test when disk full
 void writeLogs()
 {
   static const pm_char * error_displayed = NULL;
@@ -232,11 +239,7 @@ void writeLogs()
 #endif
 
 #if defined(FRSKY)
-#if defined(CPUARM) && defined(SWR)
-      f_printf(&g_oLogFile, "%d,%d,", RAW_FRSKY_MINMAX(frskyData.swr), RAW_FRSKY_MINMAX(frskyData.rssi));
-#elif defined(CPUARM)
-      f_printf(&g_oLogFile, "%d,", RAW_FRSKY_MINMAX(frskyData.rssi));
-#else
+#if !defined(CPUARM)
       f_printf(&g_oLogFile, "%d,%d,%d,", frskyStreaming, RAW_FRSKY_MINMAX(frskyData.rssi[0]), RAW_FRSKY_MINMAX(frskyData.rssi[1]));
       for (uint8_t i=0; i<MAX_FRSKY_A_CHANNELS; i++) {
         int16_t converted_value = applyChannelRatio(i, RAW_FRSKY_MINMAX(frskyData.analog[i]));
@@ -289,17 +292,31 @@ void writeLogs()
 #endif
 
 #if defined(CPUARM)
-      for (int i=0; i<TELEM_VALUES_MAX; i++) {
+      for (int i=0; i<MAX_SENSORS; i++) {
         TelemetrySensor & sensor = g_model.telemetrySensors[i];
         TelemetryItem & telemetryItem = telemetryItems[i];
         if (sensor.logs) {
-          if (sensor.prec == 2) {
+          if (sensor.unit == UNIT_GPS) {
+            if (telemetryItem.gps.longitudeEW && telemetryItem.gps.latitudeNS)
+              f_printf(&g_oLogFile, "%03d.%04d%c %03d.%04d%c,", telemetryItem.gps.longitude_bp, telemetryItem.gps.longitude_ap, telemetryItem.gps.longitudeEW, telemetryItem.gps.latitude_bp, telemetryItem.gps.latitude_ap, telemetryItem.gps.latitudeNS);
+            else
+              f_printf(&g_oLogFile, ",");
+          }
+          else if (sensor.unit == UNIT_DATETIME) {
+            if (telemetryItem.datetime.datestate)
+              f_printf(&g_oLogFile, "%4d-%02d-%02d %02d:%02d:%02d,", telemetryItem.datetime.year, telemetryItem.datetime.month, telemetryItem.datetime.day, telemetryItem.datetime.hour, telemetryItem.datetime.min, telemetryItem.datetime.sec);
+            else
+              f_printf(&g_oLogFile, ",");
+          }
+          else if (sensor.prec == 2) {
             div_t qr = div(telemetryItem.value, 100);
-            f_printf(&g_oLogFile, "%d.%02d,", qr.quot, qr.rem);
+            if (telemetryItem.value < 0) f_printf(&g_oLogFile, "-");
+            f_printf(&g_oLogFile, "%d.%02d,", abs(qr.quot), abs(qr.rem));
           }
           else if (sensor.prec == 1) {
             div_t qr = div(telemetryItem.value, 10);
-            f_printf(&g_oLogFile, "%d.%d,", qr.quot, qr.rem);
+            if (telemetryItem.value < 0) f_printf(&g_oLogFile, "-");
+            f_printf(&g_oLogFile, "%d.%d,", abs(qr.quot), abs(qr.rem));
           }
           else {
             f_printf(&g_oLogFile, "%d,", telemetryItem.value);

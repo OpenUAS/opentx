@@ -39,6 +39,7 @@
 #include "opentx.h"
 #include "stamp-opentx.h"
 #include "bin_allocator.h"
+#include "timers.h"
 
 #if !defined(SIMU)
 extern "C" {
@@ -51,7 +52,7 @@ extern "C" {
 }
 #endif
 
-#include "lua_exports.cpp"   // this line must be after lua headers
+#include "lua_exports.inc"   // this line must be after lua headers
 
 #define lua_registernumber(L, n, i)    (lua_pushnumber(L, (i)), lua_setglobal(L, (n)))
 #define lua_registerint(L, n, i)       (lua_pushinteger(L, (i)), lua_setglobal(L, (n)))
@@ -148,6 +149,9 @@ static void luaGetValueAndPush(int src)
       lua_pushinteger(L, (int)0);
     }
   }
+  else if (src == MIXSRC_TX_VOLTAGE) {
+    lua_pushnumber(L, float(value)/10.0);
+  }
   else {
     lua_pushinteger(L, value);
   }
@@ -212,7 +216,7 @@ bool luaFindFieldByName(const char * name, LuaField & field, unsigned int flags=
 
   // search in telemetry
   field.desc[0] = '\0';
-  for (int i=0; i<TELEM_VALUES_MAX; i++) {
+  for (int i=0; i<MAX_SENSORS; i++) {
     if (isTelemetryFieldAvailable(i)) {
       char sensorName[TELEM_LABEL_LEN+1];
       int len = zchar2str(sensorName, g_model.telemetrySensors[i].label, TELEM_LABEL_LEN);
@@ -295,7 +299,7 @@ static int luaPlayNumber(lua_State *L)
 {
   int number = luaL_checkinteger(L, 1);
   int unit = luaL_checkinteger(L, 2);
-  int att = luaL_checkinteger(L, 3);
+  unsigned int att = luaL_optunsigned(L, 3, 0);
   playNumber(number, unit, att, 0);
   return 0;
 }
@@ -389,7 +393,7 @@ static int luaLcdDrawText(lua_State *L)
   int x = luaL_checkinteger(L, 1);
   int y = luaL_checkinteger(L, 2);
   const char * s = luaL_checkstring(L, 3);
-  int att = luaL_checkinteger(L, 4);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
   lcd_putsAtt(x, y, s, att);
   return 0;
 }
@@ -400,7 +404,7 @@ static int luaLcdDrawTimer(lua_State *L)
   int x = luaL_checkinteger(L, 1);
   int y = luaL_checkinteger(L, 2);
   int seconds = luaL_checkinteger(L, 3);
-  int att = luaL_checkinteger(L, 4);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
   putsTimer(x, y, seconds, att|LEFT, att);
   return 0;
 }
@@ -410,8 +414,15 @@ static int luaLcdDrawNumber(lua_State *L)
   if (!luaLcdAllowed) return 0;
   int x = luaL_checkinteger(L, 1);
   int y = luaL_checkinteger(L, 2);
-  int n = luaL_checkinteger(L, 3);
-  int att = luaL_checkinteger(L, 4);
+  float val = luaL_checknumber(L, 3);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
+  int n;
+  if ((att & PREC2) == PREC2)
+    n = val * 100;
+  else if ((att & PREC1) == PREC1)
+    n = val * 10;
+  else
+    n = val;
   lcd_outdezAtt(x, y, n, att);
   return 0;
 }
@@ -433,9 +444,9 @@ static int luaLcdDrawChannel(lua_State *L)
       channel = field.id;
     }
   }
-  int att = luaL_checkinteger(L, 4);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
   getvalue_t value = getValue(channel);
-  putsTelemetryChannelValue(x, y, channel-MIXSRC_FIRST_TELEM, value, att);
+  putsTelemetryChannelValue(x, y, (channel-MIXSRC_FIRST_TELEM)/3, value, att);
   return 0;
 }
 
@@ -445,7 +456,7 @@ static int luaLcdDrawSwitch(lua_State *L)
   int x = luaL_checkinteger(L, 1);
   int y = luaL_checkinteger(L, 2);
   int s = luaL_checkinteger(L, 3);
-  int att = luaL_checkinteger(L, 4);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
   putsSwitches(x, y, s, att);
   return 0;
 }
@@ -456,7 +467,7 @@ static int luaLcdDrawSource(lua_State *L)
   int x = luaL_checkinteger(L, 1);
   int y = luaL_checkinteger(L, 2);
   int s = luaL_checkinteger(L, 3);
-  int att = luaL_checkinteger(L, 4);
+  unsigned int att = luaL_optunsigned(L, 4, 0);
   putsMixerSource(x, y, s, att);
   return 0;
 }
@@ -482,7 +493,8 @@ static int luaLcdDrawRectangle(lua_State *L)
   int y = luaL_checkinteger(L, 2);
   int w = luaL_checkinteger(L, 3);
   int h = luaL_checkinteger(L, 4);
-  lcd_rect(x, y, w, h, 0xff, 0);
+  unsigned int flags = luaL_optunsigned(L, 5, 0);
+  lcd_rect(x, y, w, h, 0xff, flags);
   return 0;
 }
 
@@ -493,8 +505,8 @@ static int luaLcdDrawFilledRectangle(lua_State *L)
   int y = luaL_checkinteger(L, 2);
   int w = luaL_checkinteger(L, 3);
   int h = luaL_checkinteger(L, 4);
-  int flags = luaL_checkinteger(L, 5);
-  lcd_filled_rect(x, y, w, h, SOLID, flags);
+  unsigned int flags = luaL_optunsigned(L, 5, 0);
+  drawFilledRect(x, y, w, h, SOLID, flags);
   return 0;
 }
 
@@ -524,7 +536,7 @@ static int luaLcdDrawScreenTitle(lua_State *L)
   int cnt = luaL_checkinteger(L, 3);
 
   if (cnt) displayScreenIndex(idx-1, cnt, 0);
-  lcd_filled_rect(0, 0, LCD_W, FH, SOLID, FILL_WHITE|GREY_DEFAULT);
+  drawFilledRect(0, 0, LCD_W, FH, SOLID, FILL_WHITE|GREY_DEFAULT);
   title(str);
 
   return 0;
@@ -539,33 +551,33 @@ static int luaLcdDrawCombobox(lua_State *L)
   luaL_checktype(L, 4, LUA_TTABLE);
   int count = luaL_len(L, 4);  /* get size of table */
   int idx = luaL_checkinteger(L, 5);
-  int flags = luaL_checkinteger(L, 6);
+  unsigned int flags = luaL_optunsigned(L, 6, 0);
   if (idx >= count) {
     // TODO error
   }
   if (flags & BLINK) {
-    lcd_filled_rect(x, y, w-9, count*9+2, SOLID, ERASE);
+    drawFilledRect(x, y, w-9, count*9+2, SOLID, ERASE);
     lcd_rect(x, y, w-9, count*9+2);
     for (int i=0; i<count; i++) {
       lua_rawgeti(L, 4, i+1);
       const char * item = luaL_checkstring(L, -1);
       lcd_putsAtt(x+2, y+2+9*i, item, 0);
     }
-    lcd_filled_rect(x+1, y+1+9*idx, w-11, 9);
-    lcd_filled_rect(x+w-10, y, 10, 11, SOLID, ERASE);
+    drawFilledRect(x+1, y+1+9*idx, w-11, 9);
+    drawFilledRect(x+w-10, y, 10, 11, SOLID, ERASE);
     lcd_rect(x+w-10, y, 10, 11);
   }
   else if (flags & INVERS) {
-    lcd_filled_rect(x, y, w, 11);
-    lcd_filled_rect(x+w-9, y+1, 8, 9, SOLID, ERASE);
+    drawFilledRect(x, y, w, 11);
+    drawFilledRect(x+w-9, y+1, 8, 9, SOLID, ERASE);
     lua_rawgeti(L, 4, idx+1);
     const char * item = luaL_checkstring(L, -1);
     lcd_putsAtt(x+2, y+2, item, INVERS);
   }
   else {
-    lcd_filled_rect(x, y, w, 11, SOLID, ERASE);
+    drawFilledRect(x, y, w, 11, SOLID, ERASE);
     lcd_rect(x, y, w, 11);
-    lcd_filled_rect(x+w-10, y+1, 9, 9, SOLID);
+    drawFilledRect(x+w-10, y+1, 9, 9, SOLID);
     lua_rawgeti(L, 4, idx+1);
     const char * item = luaL_checkstring(L, -1);
     lcd_putsAtt(x+2, y+2, item, 0);
@@ -583,7 +595,6 @@ static int luaModelGetInfo(lua_State *L)
   lua_newtable(L);
   lua_pushtablezstring(L, "name", g_model.header.name);
   lua_pushtablenzstring(L, "bitmap", g_model.header.bitmap);
-  lua_pushtableinteger(L, "id", g_model.header.modelId);
   return 1;
 }
 
@@ -602,18 +613,59 @@ static int luaModelSetInfo(lua_State *L)
       const char * name = luaL_checkstring(L, -1);
       strncpy(g_model.header.bitmap, name, sizeof(g_model.header.bitmap));
     }
-    else if (!strcmp(key, "id")) {
-      g_model.header.modelId = luaL_checkinteger(L, -1);
-      modelHeaders[g_eeGeneral.currModel].modelId = g_model.header.modelId;
-    }
   }
   eeDirty(EE_MODEL);
   return 0;
 }
 
+static int luaModelGetModule(lua_State *L)
+{
+  unsigned int idx = luaL_checkunsigned(L, 1);
+  if (idx < NUM_MODULES) {
+    ModuleData & module = g_model.moduleData[idx];
+    lua_newtable(L);
+    lua_pushtableinteger(L, "rfProtocol", module.rfProtocol);
+    lua_pushtableinteger(L, "modelId", g_model.header.modelId[idx]);
+    lua_pushtableinteger(L, "firstChannel", module.channelsStart);
+    lua_pushtableinteger(L, "channelsCount", module.channelsCount + 8);
+  }
+  else {
+    lua_pushnil(L);
+  }
+  return 1;
+}
+
+static int luaModelSetModule(lua_State *L)
+{
+  unsigned int idx = luaL_checkunsigned(L, 1);
+
+  if (idx < NUM_MODULES) {
+    ModuleData & module = g_model.moduleData[idx];
+    luaL_checktype(L, -1, LUA_TTABLE);
+    for (lua_pushnil(L); lua_next(L, -2); lua_pop(L, 1)) {
+      luaL_checktype(L, -2, LUA_TSTRING); // key is string
+      const char * key = luaL_checkstring(L, -2);
+      if (!strcmp(key, "rfProtocol")) {
+        module.rfProtocol = luaL_checkinteger(L, -1);
+      }
+      else if (!strcmp(key, "modelId")) {
+        g_model.header.modelId[idx] = modelHeaders[g_eeGeneral.currModel].modelId[idx] = luaL_checkinteger(L, -1);
+      }
+      else if (!strcmp(key, "firstChannel")) {
+        module.channelsStart = luaL_checkinteger(L, -1);
+      }
+      else if (!strcmp(key, "channelsCount")) {
+        module.channelsCount = luaL_checkinteger(L, -1) - 8;
+      }
+    }
+    eeDirty(EE_MODEL);
+  }
+  return 0;
+}
+
 static int luaModelGetTimer(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < MAX_TIMERS) {
     TimerData & timer = g_model.timers[idx];
     lua_newtable(L);
@@ -632,7 +684,7 @@ static int luaModelGetTimer(lua_State *L)
 
 static int luaModelSetTimer(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
 
   if (idx < MAX_TIMERS) {
     TimerData & timer = g_model.timers[idx];
@@ -666,47 +718,43 @@ static int luaModelSetTimer(lua_State *L)
 
 static int luaModelResetTimer(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < MAX_TIMERS) {
     timerReset(idx);
   }
   return 0;
 }
 
-static int getFirstInput(int chn)
+static unsigned int getFirstInput(unsigned int chn)
 {
-  for (int i=0; i<MAX_INPUTS; i++) {
+  for (unsigned int i=0; i<MAX_INPUTS; i++) {
     ExpoData * expo = expoAddress(i);
-    if (!expo->srcRaw || expo->chn>chn) break;
-    if (expo->chn == chn) {
+    if (!expo->srcRaw || expo->chn >= chn) {
       return i;
     }
   }
-  return -1;
+  return 0;
 }
 
-static int getInputsCountFromFirst(int chn, int first)
+static unsigned int getInputsCountFromFirst(unsigned int chn, unsigned int first)
 {
-  int count = 0;
-  if (first >= 0) {
-    for (int i=first; i<MAX_INPUTS; i++) {
-      ExpoData * expo = expoAddress(i);
-      if (!expo->srcRaw || expo->chn!=chn) break;
-      count++;
-    }
+  unsigned int count = 0;
+  for (unsigned int i=first; i<MAX_INPUTS; i++) {
+    ExpoData * expo = expoAddress(i);
+    if (!expo->srcRaw || expo->chn!=chn) break;
+    count++;
   }
   return count;
 }
 
-static int getInputsCount(int chn)
+static unsigned int getInputsCount(unsigned int chn)
 {
-  int first = getFirstInput(chn);
-  return getInputsCountFromFirst(chn, first);
+  return getInputsCountFromFirst(chn, getFirstInput(chn));
 }
 
 static int luaModelGetInputsCount(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
+  unsigned int chn = luaL_checkunsigned(L, 1);
   int count = getInputsCount(chn);
   lua_pushinteger(L, count);
   return 1;
@@ -714,17 +762,18 @@ static int luaModelGetInputsCount(lua_State *L)
 
 static int luaModelGetInput(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
-  int first = getFirstInput(chn);
-  int count = getInputsCountFromFirst(chn, first);
-  if (first>=0 && idx<count) {
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
+  unsigned int first = getFirstInput(chn);
+  unsigned int count = getInputsCountFromFirst(chn, first);
+  if (idx < count) {
     ExpoData * expo = expoAddress(first+idx);
     lua_newtable(L);
     lua_pushtablezstring(L, "name", expo->name);
     lua_pushtableinteger(L, "source", expo->srcRaw);
     lua_pushtableinteger(L, "weight", expo->weight);
     lua_pushtableinteger(L, "offset", expo->offset);
+    lua_pushtableinteger(L, "switch", expo->swtch);
   }
   else {
     lua_pushnil(L);
@@ -734,15 +783,15 @@ static int luaModelGetInput(lua_State *L)
 
 static int luaModelInsertInput(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
 
-  int first = getFirstInput(chn);
-  int count = getInputsCountFromFirst(chn, first);
+  unsigned int first = getFirstInput(chn);
+  unsigned int count = getInputsCountFromFirst(chn, first);
 
-  if (chn<MAX_INPUTS && getExpoMixCount(1)<MAX_INPUTS && idx<=count) {
-    idx = first+idx;
-    s_currCh = chn+1;
+  if (chn<MAX_INPUTS && getExpoMixCount(1)<MAX_EXPOS && idx<=count) {
+    idx = first + idx;
+    s_currCh = chn + 1;
     insertExpoMix(1, idx);
     ExpoData * expo = expoAddress(idx);
     luaL_checktype(L, -1, LUA_TTABLE);
@@ -773,13 +822,13 @@ static int luaModelInsertInput(lua_State *L)
 
 static int luaModelDeleteInput(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
 
   int first = getFirstInput(chn);
-  int count = getInputsCountFromFirst(chn, first);
+  unsigned int count = getInputsCountFromFirst(chn, first);
 
-  if (first>=0 && idx<count) {
+  if (idx < count) {
     deleteExpoMix(1, first+idx);
   }
 
@@ -798,9 +847,9 @@ static int luaModelDefaultInputs(lua_State *L)
   return 0;
 }
 
-static int getFirstMix(int chn)
+static unsigned int getFirstMix(unsigned int chn)
 {
-  for (int i=0; i<MAX_MIXERS; i++) {
+  for (unsigned int i=0; i<MAX_MIXERS; i++) {
     MixData * mix = mixAddress(i);
     if (!mix->srcRaw || mix->destCh>=chn) {
       return i;
@@ -809,40 +858,37 @@ static int getFirstMix(int chn)
   return 0;
 }
 
-static int getMixesCountFromFirst(int chn, int first)
+static unsigned int getMixesCountFromFirst(unsigned int chn, unsigned int first)
 {
-  int count = 0;
-  if (first >= 0) {
-    for (int i=first; i<MAX_MIXERS; i++) {
-      MixData * mix = mixAddress(i);
-      if (!mix->srcRaw || mix->destCh!=chn) break;
-      count++;
-    }
+  unsigned int count = 0;
+  for (unsigned int i=first; i<MAX_MIXERS; i++) {
+    MixData * mix = mixAddress(i);
+    if (!mix->srcRaw || mix->destCh!=chn) break;
+    count++;
   }
   return count;
 }
 
-static int getMixesCount(int chn)
+static unsigned int getMixesCount(unsigned int chn)
 {
-  int first = getFirstMix(chn);
-  return getMixesCountFromFirst(chn, first);
+  return getMixesCountFromFirst(chn, getFirstMix(chn));
 }
 
 static int luaModelGetMixesCount(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int count = getMixesCount(chn);
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int count = getMixesCount(chn);
   lua_pushinteger(L, count);
   return 1;
 }
 
 static int luaModelGetMix(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
-  int first = getFirstMix(chn);
-  int count = getMixesCountFromFirst(chn, first);
-  if (idx<count) {
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
+  unsigned int first = getFirstMix(chn);
+  unsigned int count = getMixesCountFromFirst(chn, first);
+  if (idx < count) {
     MixData * mix = mixAddress(first+idx);
     lua_newtable(L);
     lua_pushtablezstring(L, "name", mix->name);
@@ -869,11 +915,11 @@ static int luaModelGetMix(lua_State *L)
 
 static int luaModelInsertMix(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
 
-  int first = getFirstMix(chn);
-  int count = getMixesCountFromFirst(chn, first);
+  unsigned int first = getFirstMix(chn);
+  unsigned int count = getMixesCountFromFirst(chn, first);
 
   if (chn<NUM_CHNOUT && getExpoMixCount(0)<MAX_MIXERS && idx<=count) {
     idx += first;
@@ -938,13 +984,13 @@ static int luaModelInsertMix(lua_State *L)
 
 static int luaModelDeleteMix(lua_State *L)
 {
-  int chn = luaL_checkunsigned(L, 1);
-  int idx = luaL_checkunsigned(L, 2);
+  unsigned int chn = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 2);
 
-  int first = getFirstMix(chn);
-  int count = getMixesCountFromFirst(chn, first);
+  unsigned int first = getFirstMix(chn);
+  unsigned int count = getMixesCountFromFirst(chn, first);
 
-  if (idx<count) {
+  if (idx < count) {
     deleteExpoMix(0, first+idx);
   }
 
@@ -959,7 +1005,7 @@ static int luaModelDeleteMixes(lua_State *L)
 
 static int luaModelGetLogicalSwitch(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_LOGICAL_SWITCH) {
     LogicalSwitchData * sw = lswAddress(idx);
     lua_newtable(L);
@@ -979,7 +1025,7 @@ static int luaModelGetLogicalSwitch(lua_State *L)
 
 static int luaModelSetLogicalSwitch(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_LOGICAL_SWITCH) {
     LogicalSwitchData * sw = lswAddress(idx);
     memclear(sw, sizeof(LogicalSwitchData));
@@ -1017,7 +1063,7 @@ static int luaModelSetLogicalSwitch(lua_State *L)
 
 static int luaModelGetCurve(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < MAX_CURVES) {
     CurveInfo & curveInfo = g_model.curves[idx];
     lua_newtable(L);
@@ -1059,7 +1105,7 @@ static int luaModelGetCurve(lua_State *L)
 
 static int luaModelGetCustomFunction(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_CFN) {
     CustomFunctionData * cfn = &g_model.customFn[idx];
     lua_newtable(L);
@@ -1083,7 +1129,7 @@ static int luaModelGetCustomFunction(lua_State *L)
 
 static int luaModelSetCustomFunction(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_CFN) {
     CustomFunctionData * cfn = &g_model.customFn[idx];
     memclear(cfn, sizeof(CustomFunctionData));
@@ -1122,7 +1168,7 @@ static int luaModelSetCustomFunction(lua_State *L)
 
 static int luaModelGetOutput(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_CHNOUT) {
     LimitData * limit = limitAddress(idx);
     lua_newtable(L);
@@ -1146,7 +1192,7 @@ static int luaModelGetOutput(lua_State *L)
 
 static int luaModelSetOutput(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
+  unsigned int idx = luaL_checkunsigned(L, 1);
   if (idx < NUM_CHNOUT) {
     LimitData * limit = limitAddress(idx);
     luaL_checktype(L, -1, LUA_TTABLE);
@@ -1190,8 +1236,8 @@ static int luaModelSetOutput(lua_State *L)
 
 static int luaModelGetGlobalVariable(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
-  int phase = luaL_checkunsigned(L, 2);
+  unsigned int idx = luaL_checkunsigned(L, 1);
+  unsigned int phase = luaL_checkunsigned(L, 2);
   if (phase < MAX_FLIGHT_MODES && idx < MAX_GVARS)
     lua_pushinteger(L, g_model.flightModeData[phase].gvars[idx]);
   else
@@ -1201,8 +1247,8 @@ static int luaModelGetGlobalVariable(lua_State *L)
 
 static int luaModelSetGlobalVariable(lua_State *L)
 {
-  int idx = luaL_checkunsigned(L, 1);
-  int phase = luaL_checkunsigned(L, 2);
+  unsigned int idx = luaL_checkunsigned(L, 1);
+  unsigned int phase = luaL_checkunsigned(L, 2);
   int value = luaL_checkinteger(L, 3);
   if (phase < MAX_FLIGHT_MODES && idx < MAX_GVARS && value >= -GVAR_MAX && value <= GVAR_MAX) {
     g_model.flightModeData[phase].gvars[idx] = value;
@@ -1406,6 +1452,8 @@ const luaR_value_entry opentxConstants[] = {
 const luaL_Reg modelLib[] = {
   { "getInfo", luaModelGetInfo },
   { "setInfo", luaModelSetInfo },
+  { "getModule", luaModelGetModule },
+  { "setModule", luaModelSetModule },
   { "getTimer", luaModelGetTimer },
   { "setTimer", luaModelSetTimer },
   { "resetTimer", luaModelResetTimer },
@@ -1785,7 +1833,7 @@ void luaDoOneRunStandalone(uint8_t evt)
           luaExec(nextScript);
         }
         else {
-          TRACE("Script error");
+          TRACE("Script run function returned unexpected value");
           standaloneScript.state = SCRIPT_SYNTAX_ERROR;
           luaState = INTERPRETER_RELOAD_PERMANENT_SCRIPTS;
         }

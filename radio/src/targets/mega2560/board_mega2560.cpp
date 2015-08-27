@@ -48,14 +48,12 @@ inline void boardInit()
   DDRE = 0b00000010;  PORTE = 0b11111100; // 7:N/A, 6:N/A, 5:RENC1_B, 4:RENC1_A, 3:N/A, 2:N/A, 1:TELEM_TX, 0:TELEM_RX
   DDRF = 0b00000000;  PORTF = 0b11111111; // 7-0:Trim switch inputs
   DDRG = 0b00000000;  PORTG = 0b11111111; // 7:N/A, 6:N/A, 5:N/A, 4:N/A, 3:N/A, 2:TCut_SW, 1:Gear_SW, 0: RudDr_SW
-  DDRH = 0b00011000;  PORTH = 0b11110110; // 7:N/A, 6:RFPw, 5:JackPres, 4:HoldPw, 3:Speaker, 2:N/A, 1:N/A, 0:Haptic
+  DDRH = 0b00011000;  PORTH = 0b11110110; // 7:N/A, 6:RF_Activated, 5:DSC_Activated, 4:Hold_Power, 3:Speaker, 2:N/A, 1:N/A, 0:Haptic
   DDRJ = 0b00000000;  PORTJ = 0b11111111; // 7:N/A, 6:N/A, 5:N/A, 4:N/A, 3:N/A, 2:N/A, 1:RENC2_push, 0:RENC1_push
   DDRK = 0b00000000;  PORTK = 0b00000000; // Analogic input (no pull-ups)
   DDRL = 0b00000000;  PORTL = 0b11111111; // 7:TRN_SW 6:EleDR_SW, 5:ESC, 4:MENU 3:Keyb_Left, 2:Keyb_Right, 1:Keyb_Up, 0:Keyb_Down
   
-  ADMUX=ADC_VREF_TYPE;
-  ADCSRA=0x85; // ADC enabled, pre-scaler division=32 (no interrupt, no auto-triggering)
-  ADCSRB=(1<<MUX5);
+  adcInit();
 
   /**** Set up timer/counter 0 ****/
   // TCNT0  10ms = 16MHz/1024/156(.25) periodic timer (100ms interval)
@@ -67,10 +65,10 @@ inline void boardInit()
   // Set up Phase correct Waveform Gen. mode, at clk/64 = 250,000 counts/second
   // (Higher speed allows for finer control of frequencies in the audio range.)
   // Used for audio tone generation
-  TCCR0B  = (1<<WGM02) | (0b011 << CS00);
-  TCCR0A  = (0b01<<WGM00);
+  TCCR4B  = (1<<WGM42) | (0b011 << CS00);
+  TCCR4A  = (0b01<<WGM40);
   
-  #if defined (VOICE)
+  #if defined (VOICE)     // OLD FROM GRUVIN9X, TO REWRITE
   // SOMO set-up
   OCR4A = 0x1F4; //2ms
   TCCR4B = (1 << WGM42) | (0b011 << CS40); // CTC OCR1A, 16MHz / 64 (4us ticks)
@@ -100,7 +98,7 @@ uint8_t pwrCheck()
 
 void pwrOff()
 {
-  PORTH = 0b11101111;   // PortH-4 set to 0
+  PORTH &= ~0x10;   // PortH-4 set to 0
 }
 
 FORCEINLINE uint8_t keyDown()
@@ -117,15 +115,15 @@ bool switchState(EnumKeys enuk)
 
   switch(enuk){
     case SW_ELE:
-      result = PINL & (1<<INP_L_ElevDR);
+      result = !(PINL & (1<<INP_L_ElevDR));
       break;
 
     case SW_AIL:
-      result = PIND & (1<<INP_D_AileDR);
+      result = !(PIND & (1<<INP_D_AileDR));
       break;
 
     case SW_RUD:
-      result = PING & (1<<INP_G_RuddDR);
+      result = !(PING & (1<<INP_G_RuddDR));
       break;
 
     //       INP_C_ID1  INP_C_ID2
@@ -144,30 +142,16 @@ bool switchState(EnumKeys enuk)
       result = !(PINC & (1<<INP_C_ID2));
       break;
 
-#if 0
-    case SW_ID3:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] < 0);
-      break;
-
-    case SW_ID4:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] == 0);
-      break;
-
-    case SW_ID5:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] > 0);
-      break;
-#endif
-
     case SW_GEA:
-      result = PING & (1<<INP_G_Gear);
+      result = !(PING & (1<<INP_G_Gear));
       break;
 
     case SW_THR:
-      result = PING & (1<<INP_G_ThrCt);
+      result = !(PING & (1<<INP_G_ThrCt));
       break;
 
     case SW_TRN:
-      result = PINL & (1<<INP_L_Trainer);
+      result = !(PINL & (1<<INP_L_Trainer));
       break;
 
     default:
@@ -178,15 +162,15 @@ bool switchState(EnumKeys enuk)
 }
 
 // Trim switches
-static const pm_uchar crossTrim[] PROGMEM ={
-    1<<INP_F_TRM_LH_DWN,
-    1<<INP_F_TRM_LH_UP,
-    1<<INP_F_TRM_LV_DWN,
-    1<<INP_F_TRM_LV_UP,
-    1<<INP_F_TRM_RV_DWN,
-    1<<INP_F_TRM_RV_UP,
-    1<<INP_F_TRM_RH_DWN,
-    1<<INP_F_TRM_RH_UP
+static const pm_uchar crossTrim[] PROGMEM = {
+  TRIMS_GPIO_PIN_LHL,
+  TRIMS_GPIO_PIN_LHR,
+  TRIMS_GPIO_PIN_LVD,
+  TRIMS_GPIO_PIN_LVU,
+  TRIMS_GPIO_PIN_RVD,
+  TRIMS_GPIO_PIN_RVU,
+  TRIMS_GPIO_PIN_RHL,
+  TRIMS_GPIO_PIN_RHR
 };
      
 uint8_t trimDown(uint8_t idx)
@@ -199,8 +183,8 @@ FORCEINLINE void readKeysAndTrims()
 {
   uint8_t enuk = KEY_MENU;
 
-  keys[BTN_REa].input(~PINJ & 0b00000001);
-  keys[BTN_REb].input(~PINJ & 0b00000010);
+  keys[BTN_REa].input(~PINJ & 0x01);
+  keys[BTN_REb].input(~PINJ & 0x02);
 
   uint8_t tin = ~PINL;
   uint8_t in;
@@ -208,7 +192,6 @@ FORCEINLINE void readKeysAndTrims()
   in |= (tin & 0x30) >> 3;
 
   for (int i=1; i<7; i++) {
-    //INP_B_KEY_MEN 1  .. INP_B_KEY_LFT 6
     keys[enuk].input(in & (1<<i));
     ++enuk;
   }

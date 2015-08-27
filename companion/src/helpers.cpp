@@ -47,44 +47,6 @@ const QColor colors[C9X_MAX_CURVES] = {
   QColor(255,127,0),
 };
 
-QString getPhaseName(int val, const char * phasename)
-{
-  if (!val) return "---";
-  if (!phasename) {
-    return QString(val < 0 ? "!" : "") + QObject::tr("FM%1").arg(abs(val) - 1);
-  }
-  else {
-    QString phaseName;
-    phaseName.append(phasename);
-    if (phaseName.isEmpty()) {
-      return QString(val < 0 ? "!" : "") + QObject::tr("FM%1").arg(abs(val) - 1);
-    }
-    else {
-      return QString(val < 0 ? "!" : "") + phaseName;
-    }
-  }
-}
-
-QString getInputStr(ModelData * model, int index)
-{
-  QString result;
-
-  if (GetCurrentFirmware()->getCapability(VirtualInputs)) {
-    if (strlen(model->inputNames[index]) > 0) {
-      result = QObject::tr("[I%1]").arg(index+1);
-      result += QString(model->inputNames[index]);
-    }
-    else {
-      result = QObject::tr("Input%1").arg(index+1, 2, 10, QChar('0'));
-    }
-  }
-  else {
-    result = RawSource(SOURCE_TYPE_STICK, index).toString(model);
-  }
-
-  return result;
-}
-
 void populateGvSourceCB(QComboBox *b, int value)
 {
   QString strings[] = { QObject::tr("---"), QObject::tr("Rud Trim"), QObject::tr("Ele Trim"), QObject::tr("Thr Trim"), QObject::tr("Ail Trim"), QObject::tr("Rot Enc"), QObject::tr("Rud"), QObject::tr("Ele"), QObject::tr("Thr"), QObject::tr("Ail"), QObject::tr("P1"), QObject::tr("P2"), QObject::tr("P3")};
@@ -95,18 +57,35 @@ void populateGvSourceCB(QComboBox *b, int value)
   b->setCurrentIndex(value);
 }
 
-QString getProtocolStr(const int proto)
+void populateFileComboBox(QComboBox * b, const QSet<QString> & set, const QString & current)
 {
-  static const char *strings[] = { "OFF",
-                                   "PPM",
-                                   "Silverlit A", "Silverlit B", "Silverlit C",
-                                   "CTP1009",
-                                   "LP45", "DSM2", "DSMX",
-                                   "PPM16", "PPMsim",
-                                   "FrSky XJT - D16", "FrSky XJT - D8", "FrSky XJT - LR12", "FrSky DJT",
-  };
+  b->clear();
+  b->addItem("----");
 
-  return CHECK_IN_ARRAY(strings, proto);
+  bool added = false;
+  // Convert set into list and sort it alphabetically case insensitive
+  QStringList list = QStringList::fromSet(set);
+  qSort(list.begin(), list.end(), caseInsensitiveLessThan);
+  foreach (QString entry, list) {
+    b->addItem(entry);
+    if (entry == current) {
+      b->setCurrentIndex(b->count()-1);
+      added = true;
+    }
+  }
+
+  if (!added && !current.isEmpty()) {
+    b->addItem(current);
+    b->setCurrentIndex(b->count()-1);
+  }
+}
+
+void getFileComboBoxValue(QComboBox * b, char * dest, int length)
+{
+  memset(dest, 0, length+1);
+  if (b->currentText() != "----") {
+    strncpy(dest, b->currentText().toAscii(), length);
+  }
 }
 
 void populatePhasesCB(QComboBox *b, int value)
@@ -402,7 +381,7 @@ void populateSwitchCB(QComboBox *b, const RawSwitch & value, const GeneralSettin
   }
 
   for (int i=GetCurrentFirmware()->getCapability(MultiposPots)-1; i>=0; i--) {
-    if (generalSettings.potsType[i] == 2/* TODO constant*/) {
+    if (generalSettings.potConfig[i] == GeneralSettings::POT_MULTIPOS_SWITCH) {
       for (int j=-GetCurrentFirmware()->getCapability(MultiposPotsPositions); j<0; j++) {
         item = RawSwitch(SWITCH_TYPE_MULTIPOS_POT, -i*GetCurrentFirmware()->getCapability(MultiposPotsPositions)+j);
         b->addItem(item.toString(), item.toValue());
@@ -412,9 +391,10 @@ void populateSwitchCB(QComboBox *b, const RawSwitch & value, const GeneralSettin
   }
 
   for (int i=-GetCurrentFirmware()->getCapability(SwitchesPositions); i<0; i++) {
-    if (IS_TARANIS(GetCurrentFirmware()->getBoard()) && !generalSettings.switchPositionAllowedTaranis(i))
-      continue;
     item = RawSwitch(SWITCH_TYPE_SWITCH, i);
+    if (IS_TARANIS(GetCurrentFirmware()->getBoard()) && !generalSettings.switchPositionAllowedTaranis(i)){
+      continue;
+    }
     b->addItem(item.toString(), item.toValue());
     if (item == value) b->setCurrentIndex(b->count()-1);
   }
@@ -433,15 +413,16 @@ void populateSwitchCB(QComboBox *b, const RawSwitch & value, const GeneralSettin
   }
 
   for (int i=1; i<=GetCurrentFirmware()->getCapability(SwitchesPositions); i++) {
-    if (IS_TARANIS(GetCurrentFirmware()->getBoard()) && !generalSettings.switchPositionAllowedTaranis(i))
-      continue;
     item = RawSwitch(SWITCH_TYPE_SWITCH, i);
+    if (IS_TARANIS(GetCurrentFirmware()->getBoard()) && !generalSettings.switchPositionAllowedTaranis(i)){
+      continue;
+    }
     b->addItem(item.toString(), item.toValue());
     if (item == value) b->setCurrentIndex(b->count()-1);
   }
 
   for (int i=0; i<GetCurrentFirmware()->getCapability(MultiposPots); i++) {
-    if (generalSettings.potsType[i] == 2/* TODO constant*/) {
+    if (generalSettings.potConfig[i] == GeneralSettings::POT_MULTIPOS_SWITCH) {
       for (int j=1; j<=GetCurrentFirmware()->getCapability(MultiposPotsPositions); j++) {
         item = RawSwitch(SWITCH_TYPE_MULTIPOS_POT, i*GetCurrentFirmware()->getCapability(MultiposPotsPositions)+j);
         b->addItem(item.toString(), item.toValue());
@@ -525,14 +506,14 @@ void populateGVCB(QComboBox *b, int value)
   }
 }
 
-void populateSourceCB(QComboBox *b, const RawSource & source, const ModelData * model, unsigned int flags)
+void populateSourceCB(QComboBox *b, const RawSource & source, const GeneralSettings generalSettings, const ModelData * model, unsigned int flags)
 {
   BoardEnum board = GetCurrentFirmware()->getBoard();
   RawSource item;
 
   b->clear();
 
-  if (flags & POPULATE_SOURCES) {
+  if (flags & POPULATE_NONE) {
     item = RawSource(SOURCE_TYPE_NONE);
     b->addItem(item.toString(model), item.toValue());
     if (item == source) b->setCurrentIndex(b->count()-1);
@@ -560,8 +541,11 @@ void populateSourceCB(QComboBox *b, const RawSource & source, const ModelData * 
   }
 
   if (flags & POPULATE_SOURCES) {
-    for (int i=0; i<4+GetCurrentFirmware()->getCapability(Pots); i++) {
+    for (int i=0; i<NUM_STICKS+GetCurrentFirmware()->getCapability(Pots)+GetCurrentFirmware()->getCapability(Sliders); i++) {
       item = RawSource(SOURCE_TYPE_STICK, i);
+      // skip unavailable pots and sliders
+      if (item.isPot() && !generalSettings.isPotAvailable(i-NUM_STICKS)) continue;
+      if (item.isSlider() && !generalSettings.isSliderAvailable(i-NUM_STICKS-GetCurrentFirmware()->getCapability(Pots))) continue;
       b->addItem(item.toString(model), item.toValue());
       if (item == source) b->setCurrentIndex(b->count()-1);
     }
@@ -590,6 +574,11 @@ void populateSourceCB(QComboBox *b, const RawSource & source, const ModelData * 
     for (int i=0; i<GetCurrentFirmware()->getCapability(Switches); i++) {
       item = RawSource(SOURCE_TYPE_SWITCH, i);
       b->addItem(item.toString(model), item.toValue());
+      if (IS_TARANIS(GetCurrentFirmware()->getBoard()) && !generalSettings.switchSourceAllowedTaranis(i)) {
+        QModelIndex index = b->model()->index(b->count()-1, 0);
+        QVariant v(0);
+        b->model()->setData(index, v, Qt::UserRole - 1);
+      }
       if (item == source) b->setCurrentIndex(b->count()-1);
     }
 
@@ -620,42 +609,36 @@ void populateSourceCB(QComboBox *b, const RawSource & source, const ModelData * 
     }
   }
 
-  if (IS_ARM(GetCurrentFirmware()->getBoard())) {
-    if ((flags & POPULATE_TELEMETRY) || (flags & POPULATE_TELEMETRYEXT)) {
+  if (flags & POPULATE_TELEMETRY) {
+    if (IS_ARM(GetCurrentFirmware()->getBoard())) {
       for (int i=0; i<5; ++i) {
         item = RawSource(SOURCE_TYPE_SPECIAL, i);
         b->addItem(item.toString(model), item.toValue());
         if (item == source) b->setCurrentIndex(b->count()-1);
       }
       for (int i=0; i<C9X_MAX_SENSORS; ++i) {
-        if (model->sensorData[i].isAvailable()) {
+        if (model && model->sensorData[i].isAvailable()) {    //this conditon must be false if we populate Global Functions where model = 0
           for (int j=0; j<3; ++j) {
             item = RawSource(SOURCE_TYPE_TELEMETRY, 3*i+j);
             b->addItem(item.toString(model), item.toValue());
+            // qDebug() << item.toString(model) << source.toString(model);
             if (item == source) b->setCurrentIndex(b->count()-1);
           }
         }
       }
     }
-  }
-  else if (flags & POPULATE_TELEMETRYEXT) {
-    for (int i=0; i<TELEMETRY_SOURCE_ACC; i++) {
-      if (i==TELEMETRY_SOURCE_RSSI_TX && IS_TARANIS(board))
-        continue;
-      item = RawSource(SOURCE_TYPE_TELEMETRY, i);
-      b->addItem(item.toString(model), item.toValue());
-      if (item == source) b->setCurrentIndex(b->count()-1);
-    }
-  }
-  else if (flags & POPULATE_TELEMETRY) {
-    for (int i=0; i<TELEMETRY_SOURCES_COUNT; i++) {
-      if (i==TELEMETRY_SOURCE_RSSI_TX && IS_TARANIS(board))
-        continue;
-      if (i==TELEMETRY_SOURCE_TIMER3 && !IS_ARM(board))
-        continue;
-      item = RawSource(SOURCE_TYPE_TELEMETRY, i);
-      b->addItem(item.toString(model), item.toValue());
-      if (item == source) b->setCurrentIndex(b->count()-1);
+    else {
+      for (int i=0; i<(flags & POPULATE_TELEMETRYEXT ? TELEMETRY_SOURCES_STATUS_COUNT : TELEMETRY_SOURCES_COUNT); i++) {
+        if (i==TELEMETRY_SOURCE_TX_TIME && !GetCurrentFirmware()->getCapability(RtcTime))
+          continue;
+        if (i==TELEMETRY_SOURCE_SWR && !GetCurrentFirmware()->getCapability(SportTelemetry))
+          continue;
+        if (i==TELEMETRY_SOURCE_TIMER3 && !IS_ARM(board))
+          continue;
+        item = RawSource(SOURCE_TYPE_TELEMETRY, i);
+        b->addItem(item.toString(model), item.toValue());
+        if (item == source) b->setCurrentIndex(b->count()-1);
+      }
     }
   }
 
@@ -757,111 +740,6 @@ QString getFrSkySrc(int index)
   return RawSource(SOURCE_TYPE_TELEMETRY, index-1).toString();
 }
 
-QString getTrimInc(ModelData * g_model)
-{
-  switch (g_model->trimInc) {
-    case -2:
-      return QObject::tr("Exponential");
-    case -1:
-      return QObject::tr("Extra Fine");
-    case 0:
-      return QObject::tr("Fine");
-    case 1:
-      return QObject::tr("Medium");
-    case 2:
-      return QObject::tr("Coarse");
-    default:
-      return QObject::tr("Unknown");
-  }
-}
-
-QString getTimerStr(TimerData & timer)
-{
-  QString result = QObject::tr("%1:%2").arg(timer.val/60, 2, 10, QChar('0')).arg(timer.val%60, 2, 10, QChar('0'));
-  result += QString(", ") + timer.mode.toString();
-  if (timer.persistent)
-    result += QObject::tr(", Persistent");
-  if (timer.minuteBeep)
-    result += QObject::tr(", MinuteBeep");
-  if (timer.countdownBeep == 1)
-    result += QObject::tr(", CountDown(Beeps)");
-  else if (timer.countdownBeep == 2)
-    result += QObject::tr(", CountDown(Voice)");
-  return result;
-}
-
-QString getProtocol(ModelData * g_model)
-{
-  QString str = getProtocolStr(g_model->moduleData[0].protocol);
-
-  if (g_model->moduleData[0].protocol == PPM)
-    str.append(QObject::tr(": %1 Channels, %2usec Delay").arg(g_model->moduleData[0].channelsCount).arg(g_model->moduleData[0].ppmDelay));
-
-  return str;
-}
-
-QString getPhasesStr(unsigned int phases, ModelData * model)
-{
-  int numphases = GetCurrentFirmware()->getCapability(FlightModes);
-
-  if (numphases && phases) {
-    QString str;
-    int count = 0;
-    if (phases == (unsigned int)(1<<numphases) - 1) {
-      str = QObject::tr("None");
-    }
-    if (phases) {
-      for (int i=0; i<numphases;i++) {
-        if (!(phases & (1<<i))) {
-          if (count++ > 0) str += QString(", ");
-          str += getPhaseName(i+1, model->flightModeData[i].name);
-        }
-      }
-    }
-    if (count > 1)
-      return QObject::tr("Flight modes(%1)").arg(str);
-    else
-      return QObject::tr("Flight mode(%1)").arg(str);
-  }
-  else {
-    return "";
-  }
-}
-
-QString getCenterBeepStr(ModelData * g_model)
-{
-  QStringList strl;
-  if (g_model->beepANACenter & 0x01)
-    strl << QObject::tr("Rudder");
-  if (g_model->beepANACenter & 0x02)
-    strl << QObject::tr("Elevator");
-  if (g_model->beepANACenter & 0x04)
-    strl << QObject::tr("Throttle");
-  if (g_model->beepANACenter & 0x08)
-    strl << QObject::tr("Aileron");
-  if (IS_TARANIS(GetCurrentFirmware()->getBoard())) {
-    if (g_model->beepANACenter & 0x10)
-      strl << "S1";
-    if (g_model->beepANACenter & 0x20)
-      strl << "S2";
-    if (g_model->beepANACenter & 0x40)
-      strl << "S3";
-    if (g_model->beepANACenter & 0x80)
-      strl << "LS";
-    if (g_model->beepANACenter & 0x100)
-      strl << "RS";
-  }
-  else {
-    if (g_model->beepANACenter & 0x10)
-      strl << "P1";
-    if (g_model->beepANACenter & 0x20)
-      strl << "P2";
-    if (g_model->beepANACenter & 0x40)
-      strl << "P3";
-  }
-  return strl.join(", ");
-}
-
 QString getTheme()
 {
   int theme_set = g.theme();
@@ -897,9 +775,8 @@ CompanionIcon::CompanionIcon(const QString &baseimage)
 
 void startSimulation(QWidget * parent, RadioData & radioData, int modelIdx)
 {
-  SimulatorInterface * si = GetCurrentFirmware()->getSimulator();
+  SimulatorInterface * si = GetCurrentFirmwareSimulator();
   if (si) {
-    delete si;
     RadioData * simuData = new RadioData(radioData);
     unsigned int flags = 0;
     if (modelIdx >= 0) {
@@ -911,10 +788,20 @@ void startSimulation(QWidget * parent, RadioData & radioData, int modelIdx)
     }
     BoardEnum board = GetCurrentFirmware()->getBoard();
     SimulatorDialog * sd;
-    if (IS_TARANIS(board))
-      sd = new SimulatorDialogTaranis(parent, flags);
-    else
-      sd = new SimulatorDialog9X(parent, flags);
+    if (IS_TARANIS(board)) {
+      for (int i=0; i<GetCurrentFirmware()->getCapability(Pots); i++) {
+        if (radioData.generalSettings.isPotAvailable(i)) {
+          flags |= (SIMULATOR_FLAGS_S1 << i);
+          if (radioData.generalSettings.potConfig[1] == GeneralSettings::POT_MULTIPOS_SWITCH ) {
+            flags |= (SIMULATOR_FLAGS_S1_MULTI << i);
+          }
+        }
+      }
+      sd = new SimulatorDialogTaranis(parent, si, flags);
+    }
+    else {
+      sd = new SimulatorDialog9X(parent, si, flags);
+    }
     QByteArray eeprom(GetEepromInterface()->getEEpromSize(), 0);
     GetEepromInterface()->save((uint8_t *)eeprom.data(), *simuData, GetCurrentFirmware()->getCapability(SimulatorVariant));
     delete simuData;
@@ -950,22 +837,38 @@ QPixmap makePixMap( QImage image, QString firmwareType )
   return(QPixmap::fromImage(image));
 }
 
-int version2index(QString version)
+int version2index(const QString & version)
 {
-  QStringList parts = version.split('.');
-  int result = 0;
-  if (parts.size() > 2)
-    result = parts[2].toInt();
+  int result = 999;
+  QStringList parts = version.split("N");
   if (parts.size() > 1)
-    result += 100 * parts[1].toInt();
+    result = parts[1].toInt(); // nightly build
+  parts = parts[0].split('.');
+  if (parts.size() > 2)
+    result += 1000 * parts[2].toInt();
+  if (parts.size() > 1)
+    result += 100000 * parts[1].toInt();
   if (parts.size() > 0)
-    result += 10000 * parts[0].toInt();
+    result += 10000000 * parts[0].toInt();
   return result;
 }
 
 QString index2version(int index)
 {
-  if (index >= 19900) {
+  if (index >= 19900000) {
+    int nightly = index % 1000;
+    index /= 1000;
+    int revision = index % 100;
+    index /= 100;
+    int minor = index % 100;
+    int major = index / 100;
+    QString result = QString("%1.%2.%3").arg(major).arg(minor).arg(revision);
+    if (nightly > 0 && nightly < 999) {
+      result += QString("N%1").arg(nightly);
+    }
+    return result;
+  }
+  else if (index >= 19900) {
     int revision = index % 100;
     index /= 100;
     int minor = index % 100;
@@ -983,11 +886,16 @@ int qunlink(const QString & fileName)
   return unlink(ba.constData());
 }
 
-QString generateProcessUniqueTempFileName(const QString &fileName)
+QString generateProcessUniqueTempFileName(const QString & fileName)
 {
   QString sanitizedFileName = fileName;
   sanitizedFileName.remove('/');
   return QDir::tempPath() + QString("/%1-").arg(QCoreApplication::applicationPid()) + sanitizedFileName;
+}
+
+bool isTempFileName(const QString & fileName)
+{
+  return fileName.startsWith(QDir::tempPath());
 }
 
 QString getSoundsPath(const GeneralSettings &generalSettings)
@@ -1012,6 +920,78 @@ QSet<QString> getFilesSet(const QString &path, const QStringList &filter, int ma
         result.insert(name);
       }
     }
+  }
+  return result;
+}
+
+bool caseInsensitiveLessThan(const QString &s1, const QString &s2)
+{
+  return s1.toLower() < s2.toLower();
+}
+
+bool GpsGlitchFilter::isGlitch(double latitude, double longitude) 
+{
+  if ((fabs(latitude) < 0.1) && (fabs(longitude) < 0.1)) {
+    return true;
+  }
+
+  if (lastValid) {
+    if (fabs(latitude - lastLat) > 0.01) {
+      // qDebug() << "GpsGlitchFilter(): latitude glitch " << latitude << lastLat;
+      if ( ++glitchCount < 10) {
+        return true; 
+      }
+    }
+    if (fabs(longitude - lastLon) > 0.01) {
+      // qDebug() << "GpsGlitchFilter(): longitude glitch " << longitude << lastLon;
+      if ( ++glitchCount < 10) {
+        return true; 
+      }
+    }
+  }
+  lastLat = latitude;
+  lastLon = longitude;
+  lastValid = true;
+  glitchCount = 0;
+  return false;
+}
+
+bool GpsLatLonFilter::isValid(const QString & latitude, const QString & longitude)
+{
+  if (lastLat == latitude) {
+    return false;
+  }
+  if (lastLon == longitude) {
+    return false;
+  }
+  lastLat = latitude;
+  lastLon = longitude;
+  return true;
+}
+
+double toDecimalCoordinate(const QString & value) 
+{
+  if (value.isEmpty()) return 0.0;
+  double temp = int(value.left(value.length()-1).toDouble() / 100);
+  double result = temp + (value.left(value.length() - 1).toDouble() - temp * 100) / 60.0;
+  QChar direction = value.at(value.size()-1);
+  if ((direction == 'S') || (direction == 'W')) {
+    result = -result;
+  }
+  return result;
+}
+
+QStringList extractLatLon(const QString & position)
+{
+  QStringList result;
+  QStringList parts = position.split(' ');
+  if (parts.size() != 2) {
+    result.append(""); 
+    result.append(""); 
+  }
+  else {
+    result.append(parts.at(1).trimmed());
+    result.append(parts.at(0).trimmed());
   }
   return result;
 }

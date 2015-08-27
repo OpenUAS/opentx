@@ -37,6 +37,8 @@
 #ifndef simpgmspace_h
 #define simpgmspace_h
 
+extern int g_snapshot_idx;
+
 #ifndef __GNUC__
 #include <windows.h>
 #define sleep(x) Sleep(x)
@@ -98,9 +100,9 @@ typedef const uint8_t pm_uint8_t;
 typedef const int16_t pm_int16_t;
 typedef const int8_t pm_int8_t;
 
-#if defined(PCBTARANIS)
+#if defined(CPUSTM32)
 extern GPIO_TypeDef gpioa, gpiob, gpioc, gpiod, gpioe, gpiof, gpiog;
-extern TIM_TypeDef tim1, tim3, tim4, tim8, tim10;
+extern TIM_TypeDef tim1, tim2, tim3, tim4, tim5, tim6, tim7, tim8, tim9, tim10;
 extern USART_TypeDef Usart0, Usart1, Usart2, Usart3, Usart4;
 extern RCC_TypeDef rcc;
 extern DMA_Stream_TypeDef dma2_stream2, dma2_stream6;
@@ -120,14 +122,24 @@ extern DMA_TypeDef dma2;
 #define GPIOF (&gpiof)
 #define GPIOG (&gpiog)
 #undef TIM1
+#undef TIM2
 #undef TIM3
 #undef TIM4
+#undef TIM5
+#undef TIM6
+#undef TIM7
 #undef TIM8
+#undef TIM9
 #undef TIM10
 #define TIM1 (&tim1)
+#define TIM2 (&tim2)
 #define TIM3 (&tim3)
 #define TIM4 (&tim4)
+#define TIM5 (&tim4)
+#define TIM6 (&tim4)
+#define TIM7 (&tim4)
 #define TIM8 (&tim8)
+#define TIM9 (&tim9)
 #define TIM10 (&tim10)
 #undef USART0
 #undef USART1
@@ -178,9 +190,9 @@ extern Pwm pwm;
 
 extern sem_t *eeprom_write_sem;
 
-#if defined(PCBSKY9X)
+#if !defined(EEPROM_RLC)
 extern uint32_t eeprom_pointer;
-extern char* eeprom_buffer_data;
+extern uint8_t * eeprom_buffer_data;
 extern volatile int32_t eeprom_buffer_size;
 extern bool eeprom_read_operation;
 extern volatile uint32_t Spi_complete;
@@ -309,24 +321,10 @@ extern void rxPdcUsart( void (*pChProcess)(uint8_t x) );
 #define INP_C_AileDR  7
 #define INP_E_ID2     6
 
-#define INP_B_KEY_LFT 6
-#define INP_B_KEY_RGT 5
-#define INP_B_KEY_UP  4
-#define INP_B_KEY_DWN 3
-#define INP_B_KEY_EXT 2
-#define INP_B_KEY_MEN 1
-
-#define INP_L_SPARE6    7
-#define INP_L_SPARE5    6
-#define INP_L_KEY_EXT   5
-#define INP_L_KEY_MEN   4
-#define INP_L_KEY_LFT   3
-#define INP_L_KEY_RGT   2
-#define INP_L_KEY_UP    1
-#define INP_L_KEY_DWN   0
-
 #define WGM10   0
 #define WGM12   0
+#define COM1B1  0
+#define FOC1B   0
 #define CS10    0
 #define DOR0    0
 #define UPE0    0
@@ -355,6 +353,8 @@ extern uint8_t main_thread_running;
 #define SIMU_SLEEP(x) do { if (!main_thread_running) return; sleep(x/*ms*/); } while (0)
 #define SIMU_SLEEP_NORET(x) do { sleep(x/*ms*/); } while (0)
 
+void simuInit();
+
 void simuSetKey(uint8_t key, bool state);
 void simuSetTrim(uint8_t trim, bool state);
 void simuSetSwitch(uint8_t swtch, int8_t state);
@@ -363,17 +363,21 @@ void StartMainThread(bool tests=true);
 void StopMainThread();
 void StartEepromThread(const char *filename="eeprom.bin");
 void StopEepromThread();
-
-extern const char *eepromFile;
-#if defined(PCBTARANIS) || defined(PCBACT)
-void eeprom_read_block (void *pointer_ram, uint16_t pointer_eeprom, size_t size);
+#if defined(SIMU_AUDIO) && defined(CPUARM)
+  void StartAudioThread(int volumeGain = 10);
+  void StopAudioThread(void);
 #else
-void eeprom_read_block (void *pointer_ram, const void *pointer_eeprom, size_t size);
+  #define StartAudioThread(dummy)
+  #define StopAudioThread()
 #endif
+
+extern const char * eepromFile;
+void eepromReadBlock (uint8_t * pointer_ram, uint32_t address, uint32_t size);
 
 #define wdt_enable(...) sleep(1/*ms*/)
 #define wdt_reset() sleep(1/*ms*/)
 #define boardInit()
+#define boardOff()
 
 #define OS_MutexID pthread_mutex_t
 extern OS_MutexID audioMutex;
@@ -401,33 +405,45 @@ extern OS_MutexID audioMutex;
 #define CoLeaveMutexSection(m) pthread_mutex_unlock(&(m))
 #define CoTickDelay(...)
 #define CoCreateFlag(...) 0
-inline void UART3_Configure(uint32_t baudrate, uint32_t masterClock) { }
+#define CoGetOSTime(...) 0
 #define UART_Stop(...)
 #define UART3_Stop(...)
 #define USART_GetITStatus(...) 0
 
-#if defined(PCBTARANIS)
+#if defined(CPUSTM32)
 inline void GPIO_Init(GPIO_TypeDef* GPIOx, GPIO_InitTypeDef* GPIO_InitStruct) { }
 #define GPIO_SetBits(GPIOx, pin) GPIOx->BSRRL |= pin
 #define GPIO_ResetBits(GPIOx, pin) GPIOx->BSRRL &= ~pin
 #define GPIO_ReadInputDataBit(GPIOx, pin) (GPIOx->BSRRL & pin)
 #define RCC_AHB1PeriphClockCmd(...)
 #define RCC_APB2PeriphClockCmd(...)
+inline void SPI_Init(SPI_TypeDef* SPIx, SPI_InitTypeDef* SPI_InitStruct) { }
+inline void SPI_CalculateCRC(SPI_TypeDef* SPIx, FunctionalState NewState) { }
+inline void SPI_Cmd(SPI_TypeDef* SPIx, FunctionalState NewState) { }
+inline FlagStatus SPI_I2S_GetFlagStatus(SPI_TypeDef* SPIx, uint16_t SPI_I2S_FLAG) { return RESET; }
+inline uint16_t SPI_I2S_ReceiveData(SPI_TypeDef* SPIx) { return 0; }
+inline void SPI_I2S_SendData(SPI_TypeDef* SPIx, uint16_t Data) { }
+inline void DMA_DeInit(DMA_Stream_TypeDef* DMAy_Streamx) { }
+inline void DMA_Init(DMA_Stream_TypeDef* DMAy_Streamx, DMA_InitTypeDef* DMA_InitStruct) { }
+inline void DMA_ITConfig(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_IT, FunctionalState NewState) { }
+inline void DMA_StructInit(DMA_InitTypeDef* DMA_InitStruct) { }
+inline void DMA_Cmd(DMA_Stream_TypeDef* DMAy_Streamx, FunctionalState NewState) { }
+inline FlagStatus DMA_GetFlagStatus(DMA_Stream_TypeDef* DMAy_Streamx, uint32_t DMA_FLAG) { return RESET; }
+inline void SPI_I2S_DMACmd(SPI_TypeDef* SPIx, uint16_t SPI_I2S_DMAReq, FunctionalState NewState) { }
+inline void UART3_Configure(uint32_t baudrate, uint32_t masterClock) { }
+inline void NVIC_Init(NVIC_InitTypeDef *) { }
 #endif
 
+inline void delay_01us(int dummy) { }
 #define configure_pins(...)
 
-extern "C" {
+#if defined(SDCARD)
 extern char simuSdDirectory[1024];
-}
+#endif
+
 #define sdMountPoll()
 #define sdPoll10ms()
 #define sd_card_ready()  (true)
 #define sdMounted()      (true)
-#define SD_IS_HC()       (0)
-#define SD_GET_BLOCKNR() (0)
-#define SD_GET_SIZE_MB() (0)
-#define SD_GET_SPEED()   (0)
-
 
 #endif

@@ -36,13 +36,6 @@
 
 #include "../opentx.h"
 
-#define PPM_STREAM_INIT  { 2000, 2200, 2400, 2600, 2800, 3000, 3200, 3400, 9000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-#if defined(PCBTARANIS)
-  uint16_t ppmStream[NUM_MODULES+1][20]  = { PPM_STREAM_INIT, PPM_STREAM_INIT, PPM_STREAM_INIT };
-#else
-  uint16_t ppmStream[NUM_MODULES][20]  = { MODULES_INIT(PPM_STREAM_INIT) };
-#endif
-
 void setupPulsesPPM(unsigned int port)                   // Don't enable interrupts through here
 {
   int16_t PPM_range = g_model.extendedLimits ? (512*LIMIT_EXT_PERCENT/100) * 2 : 512 * 2; //range of 0.7..1.7msec
@@ -55,6 +48,7 @@ void setupPulsesPPM(unsigned int port)                   // Don't enable interru
   uint32_t lastCh = min<unsigned int>(NUM_CHNOUT, firstCh + 8 + g_model.moduleData[port].channelsCount);
 
 #if defined(PCBSKY9X)
+  // TODO move register stuff to driver
   register Pwm *pwmptr = PWM;
   uint32_t pwmCh = (port == EXTERNAL_MODULE ? 3 : 1);
   pwmptr->PWM_CH_NUM[pwmCh].PWM_CDTYUPD = (g_model.moduleData[port].ppmDelay * 50 + 300) * 2; //Stoplen *2
@@ -64,7 +58,15 @@ void setupPulsesPPM(unsigned int port)                   // Don't enable interru
     pwmptr->PWM_CH_NUM[pwmCh].PWM_CMR |= 0x00000200 ;   // CPOL
 #endif
 
-  uint16_t * ptr = ppmStream[port];
+  PpmPulsesData * ppmPulsesData = (port == TRAINER_MODULE ? &trainerPulsesData.ppm : &modulePulsesData[port].ppm);
+  uint16_t * ptr = ppmPulsesData->pulses;
+
+#if defined(PCBSKY9X)
+  ppmPulsesData->index = 0;
+#else
+  ppmPulsesData->ptr = ptr;
+#endif
+
   int32_t rest = 22500u * 2;
   rest += (int32_t(g_model.moduleData[port].ppmFrameLength)) * 1000;
   for (uint32_t i=firstCh; i<lastCh; i++) {
@@ -77,26 +79,21 @@ void setupPulsesPPM(unsigned int port)                   // Don't enable interru
   *ptr = rest;
   *(ptr + 1) = 0;
 
-#if defined(PCBTARANIS)
+#if !defined(PCBSKY9X)
+  rest -= 1000;
+  uint32_t ppmDelay = (g_model.moduleData[port].ppmDelay * 50 + 300) * 2;
+  // set idle time, ppm delay and ppm polarity
   if (port == TRAINER_MODULE) {
-    TIM3->CCR2 = rest - 1000 ;             // Update time
-    TIM3->CCR4 = (g_model.moduleData[port].ppmDelay*50+300)*2;
-    if (!g_model.moduleData[TRAINER_MODULE].ppmPulsePol)
-      TIM3->CCER |= TIM_CCER_CC4P;
-    else
-      TIM3->CCER &= ~TIM_CCER_CC4P;
+    set_trainer_ppm_parameters(rest, ppmDelay, !g_model.moduleData[TRAINER_MODULE].ppmPulsePol); // ppmPulsePol: 0 - positive, 1 - negative
   }
   else if (port == EXTERNAL_MODULE) {
-    TIM8->CCR2 = rest - 1000;             // Update time
-    TIM8->CCR1 = (g_model.moduleData[port].ppmDelay*50+300)*2;
-    if(!g_model.moduleData[EXTERNAL_MODULE].ppmPulsePol)
-      TIM8->CCER |= TIM_CCER_CC1NP;
-    else
-      TIM8->CCER &= ~TIM_CCER_CC1NP;
-  }
-  else {
-    TIM1->CCR2 = rest - 1000;             // Update time
-    TIM1->CCR3 = (g_model.moduleData[port].ppmDelay*50+300)*2;
+    set_external_ppm_parameters(rest, ppmDelay, !g_model.moduleData[EXTERNAL_MODULE].ppmPulsePol);
   }
 #endif
+
+#if defined(TARANIS_INTERNAL_PPM)
+  else if (port == INTERNAL_MODULE) {
+    set_internal_ppm_parameters(rest, ppmDelay, !g_model.moduleData[INTERNAL_MODULE].ppmPulsePol);
+  }
+#endif // #if defined(TARANIS_INTERNAL_PPM)
 }

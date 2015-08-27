@@ -24,26 +24,16 @@
   #define WAIT_FOR_DMA_END()
 #endif
 
-#if defined(BOOT)
-  extern void hw_delay(uint16_t time);
-#endif
-
-#if !defined(BOOT)
-  bool lcdInitFinished = false;
-#endif
+bool lcdInitFinished = false;
+void lcdInitFinish();
 
 /*
-  In boot-loader: init_hw_timer() must be called before the first call to this function!
-  In opentx: delaysInit() must be called before the first call to this function!
+  delaysInit() must be called before the first call to this function!
 */
 static void Delay(uint32_t ms)
 {
   while(ms--) {
-#if !defined(BOOT)
     delay_01us(10000);
-#else
-    hw_delay(10000);
-#endif
   }
 }
 
@@ -52,12 +42,6 @@ static void Delay(uint32_t ms)
 // New hardware SPI driver for LCD
 void initLcdSpi()
 {
-  // uint16_t temp ;
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_LCD, ENABLE);
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_LCD_RST, ENABLE);
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_LCD_NCS, ENABLE);
-
-  RCC->APB1ENR |= RCC_APB1ENR_SPI3EN ;    // Enable clock
   // APB1 clock / 2 = 133nS per clock
   SPI3->CR1 = 0 ;		// Clear any mode error
   SPI3->CR1 = SPI_CR1_SSM | SPI_CR1_SSI | SPI_CR1_CPOL | SPI_CR1_CPHA ;
@@ -65,18 +49,15 @@ void initLcdSpi()
   SPI3->CR1 |= SPI_CR1_MSTR ;	// Make sure in case SSM/SSI needed to be set first
   SPI3->CR1 |= SPI_CR1_SPE ;
 
-  configure_pins( PIN_LCD_NCS, PIN_OUTPUT | PIN_PORTA | PIN_PUSHPULL | PIN_OS25 | PIN_NO_PULLUP ) ;
-  configure_pins( PIN_LCD_RST, PIN_OUTPUT | PIN_PORTD | PIN_PUSHPULL | PIN_OS25 | PIN_NO_PULLUP ) ;
-  configure_pins( PIN_LCD_A0,  PIN_OUTPUT | PIN_PORTC | PIN_PUSHPULL | PIN_OS50 | PIN_NO_PULLUP ) ;
-  configure_pins( PIN_LCD_MOSI|PIN_LCD_CLK, PIN_PORTC | PIN_PUSHPULL | PIN_OS50 | PIN_NO_PULLUP | PIN_PER_6 | PIN_PERIPHERAL ) ;
-
+  configure_pins( LCD_GPIO_PIN_NCS, PIN_OUTPUT | PIN_PORTA | PIN_OS25) ;
+  configure_pins( LCD_GPIO_PIN_RST, PIN_OUTPUT | PIN_PORTD | PIN_OS25) ;
+  configure_pins( LCD_GPIO_PIN_A0,  PIN_OUTPUT | PIN_PORTC | PIN_OS50) ;
+  configure_pins( LCD_GPIO_PIN_MOSI|LCD_GPIO_PIN_CLK, PIN_PORTC | PIN_OS50 | PIN_PER_6 | PIN_PERIPHERAL ) ;
 
   // NVIC_SetPriority( DMA1_Stream7_IRQn, 8 ) ;
   NVIC_EnableIRQ(DMA1_Stream7_IRQn) ;
   DMA1->HIFCR |= DMA_HIFCR_CTCIF7; //clear interrupt flag
   DMA1->LISR |= DMA_HISR_TCIF7;    //enable DMA TX end interrupt
-
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN ;      // Enable DMA1 clock
 
   DMA1_Stream7->CR &= ~DMA_SxCR_EN ;    // Disable DMA
   DMA1->HIFCR = DMA_HIFCR_CTCIF7 | DMA_HIFCR_CHTIF7 | DMA_HIFCR_CTEIF7 | DMA_HIFCR_CDMEIF7 | DMA_HIFCR_CFEIF7 ; // Write ones to clear bits
@@ -86,7 +67,6 @@ void initLcdSpi()
   DMA1_Stream7->FCR = 0x05 ; //DMA_SxFCR_DMDIS | DMA_SxFCR_FTH_0 ;
   DMA1_Stream7->NDTR = LCD_W*LCD_H/8*4 ;
 }
-
 
 static void LCD_Init()
 {
@@ -192,11 +172,9 @@ void lcdRefreshWait()
 
 void lcdRefresh(bool wait)
 {
-#if !defined(BOOT)
   if (!lcdInitFinished) {
     lcdInitFinish();
   }
-#endif
 
   //wait if previous DMA transfer still active
   WAIT_FOR_DMA_END();
@@ -241,11 +219,9 @@ extern "C" void DMA1_Stream7_IRQHandler()
 #else     // #if defined(REVPLUS)
 void lcdRefresh()
 {  
-#if !defined(BOOT)
   if (!lcdInitFinished) {
     lcdInitFinish();
   }
-#endif
 
   for (uint32_t y=0; y<LCD_H; y++) {
     uint8_t *p = &displayBuf[y/2 * LCD_W];
@@ -275,50 +251,60 @@ void lcdRefresh()
 }
 #endif
 
-/**Init the Backlight GPIO */
-static void LCD_BL_Config()
+void backlightInit()
 {
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOBL, ENABLE);
   GPIO_InitTypeDef GPIO_InitStructure;
   
-#if defined(REVPLUS)
-//  RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE);
-  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_BL|GPIO_Pin_BLW;
+#if defined(REV9E)
+  GPIO_InitStructure.GPIO_Pin = BACKLIGHT_GPIO_PIN_1|BACKLIGHT_GPIO_PIN_2;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
   GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_NOPULL;
-  GPIO_Init(GPIOBL, &GPIO_InitStructure);
-  GPIO_PinAFConfig(GPIOBL, GPIO_PinSource_BL, Pin_BL_AF);
-  GPIO_PinAFConfig(GPIOBL, GPIO_PinSource_BLW, Pin_BL_AF);
-
-  RCC->APB1ENR |= RCC_APB1ENR_TIM4EN ;        // Enable clock
-  TIM4->ARR = 100 ;
-  TIM4->PSC = (PERI1_FREQUENCY * TIMER_MULT_APB1) / 50000 - 1;  // 20us * 100 = 2ms => 500Hz
-  TIM4->CCMR1 = TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2 ; // PWM
-  TIM4->CCMR2 = TIM_CCMR2_OC4M_1 | TIM_CCMR2_OC4M_2 ; // PWM
-  TIM4->CCER = TIM_CCER_CC4E | TIM_CCER_CC2E ;
-  TIM4->CCR2 = 0 ;
-  TIM4->CCR4 = 80 ;
-  TIM4->EGR = 0 ;
-  TIM4->CR1 = TIM_CR1_CEN ;            // Counter enable
+  GPIO_Init(BACKLIGHT_GPIO, &GPIO_InitStructure);
+  GPIO_PinAFConfig(BACKLIGHT_GPIO, BACKLIGHT_GPIO_PinSource_1, BACKLIGHT_GPIO_AF_1);
+  GPIO_PinAFConfig(BACKLIGHT_GPIO, BACKLIGHT_GPIO_PinSource_2, BACKLIGHT_GPIO_AF_1);
+  BACKLIGHT_TIMER->ARR = 100 ;
+  BACKLIGHT_TIMER->PSC = (PERI2_FREQUENCY * TIMER_MULT_APB2) / 50000 - 1;  // 20us * 100 = 2ms => 500Hz
+  BACKLIGHT_TIMER->CCMR1 = TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2 ; // PWM
+  BACKLIGHT_TIMER->CCER = TIM_CCER_CC1E | TIM_CCER_CC2E ;
+  BACKLIGHT_TIMER->CCR2 = 0 ;
+  BACKLIGHT_TIMER->CCR1 = 100 ;
+  BACKLIGHT_TIMER->EGR = 0 ;
+  BACKLIGHT_TIMER->CR1 = TIM_CR1_CEN ;            // Counter enable
+#elif defined(REVPLUS)
+  GPIO_InitStructure.GPIO_Pin = BACKLIGHT_GPIO_PIN_1|BACKLIGHT_GPIO_PIN_2;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+  GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_NOPULL;
+  GPIO_Init(BACKLIGHT_GPIO, &GPIO_InitStructure);
+  GPIO_PinAFConfig(BACKLIGHT_GPIO, BACKLIGHT_GPIO_PinSource_1, BACKLIGHT_GPIO_AF_1);
+  GPIO_PinAFConfig(BACKLIGHT_GPIO, BACKLIGHT_GPIO_PinSource_2, BACKLIGHT_GPIO_AF_1);
+  BACKLIGHT_TIMER->ARR = 100 ;
+  BACKLIGHT_TIMER->PSC = (PERI1_FREQUENCY * TIMER_MULT_APB1) / 50000 - 1;  // 20us * 100 = 2ms => 500Hz
+  BACKLIGHT_TIMER->CCMR1 = TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2 ; // PWM
+  BACKLIGHT_TIMER->CCMR2 = TIM_CCMR2_OC4M_1 | TIM_CCMR2_OC4M_2 ; // PWM
+  BACKLIGHT_TIMER->CCER = TIM_CCER_CC4E | TIM_CCER_CC2E ;
+  BACKLIGHT_TIMER->CCR2 = 0 ;
+  BACKLIGHT_TIMER->CCR4 = 100 ;
+  BACKLIGHT_TIMER->EGR = 0 ;
+  BACKLIGHT_TIMER->CR1 = TIM_CR1_CEN ;            // Counter enable
 #else
-  GPIO_InitStructure.GPIO_Pin = GPIO_Pin_BL;
+  GPIO_InitStructure.GPIO_Pin = BACKLIGHT_GPIO_PIN_1;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
   GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_NOPULL;
-  GPIO_Init(GPIOBL, &GPIO_InitStructure);
-  GPIO_PinAFConfig(GPIOBL, GPIO_PinSource_BL, Pin_BL_AF);
-
-  RCC->APB2ENR |= RCC_APB2ENR_TIM10EN ;        // Enable clock
-  TIM10->ARR = 100 ;
-  TIM10->PSC = (PERI2_FREQUENCY * TIMER_MULT_APB2) / 50000 - 1;  // 20us * 100 = 2ms => 500Hz
-  TIM10->CCMR1 = 0x60 ;    // PWM
-  TIM10->CCER = 1 ;
-  TIM10->CCR1 = 80;
-  TIM10->EGR = 0 ;
-  TIM10->CR1 = 1 ;
+  GPIO_Init(BACKLIGHT_GPIO, &GPIO_InitStructure);
+  GPIO_PinAFConfig(BACKLIGHT_GPIO, BACKLIGHT_GPIO_PinSource_1, BACKLIGHT_GPIO_AF_1);
+  BACKLIGHT_TIMER->ARR = 100 ;
+  BACKLIGHT_TIMER->PSC = (PERI2_FREQUENCY * TIMER_MULT_APB2) / 50000 - 1;  // 20us * 100 = 2ms => 500Hz
+  BACKLIGHT_TIMER->CCMR1 = 0x60 ;    // PWM
+  BACKLIGHT_TIMER->CCER = 1 ;
+  BACKLIGHT_TIMER->CCR1 = 80;
+  BACKLIGHT_TIMER->EGR = 0 ;
+  BACKLIGHT_TIMER->CR1 = 1 ;
 #endif
 }
 
@@ -326,31 +312,29 @@ static void LCD_BL_Config()
 */
 static void LCD_Hardware_Init()
 {
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_LCD, ENABLE);
-
   GPIO_InitTypeDef GPIO_InitStructure;
   
   /*!< Configure lcd CLK\ MOSI\ A0pin in output push-pull mode *************/
-  GPIO_InitStructure.GPIO_Pin = PIN_LCD_MOSI | PIN_LCD_CLK | PIN_LCD_A0;
+  GPIO_InitStructure.GPIO_Pin = LCD_GPIO_PIN_MOSI | LCD_GPIO_PIN_CLK | LCD_GPIO_PIN_A0;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
   GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-  GPIO_Init(GPIO_LCD_SPI, &GPIO_InitStructure);
+  GPIO_Init(LCD_GPIO_SPI, &GPIO_InitStructure);
   
   LCD_NCS_HIGH();
   
   /*!< Configure lcd NCS pin in output push-pull mode ,PULLUP *************/
-  GPIO_InitStructure.GPIO_Pin = PIN_LCD_NCS; 
+  GPIO_InitStructure.GPIO_Pin = LCD_GPIO_PIN_NCS; 
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
   GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-  GPIO_Init(GPIO_LCD_NCS, &GPIO_InitStructure);
+  GPIO_Init(LCD_GPIO_NCS, &GPIO_InitStructure);
   
   /*!< Configure lcd RST pin in output pushpull mode ,PULLUP *************/
-  GPIO_InitStructure.GPIO_Pin = PIN_LCD_RST; 
-  GPIO_Init(GPIO_LCD_RST, &GPIO_InitStructure);
+  GPIO_InitStructure.GPIO_Pin = LCD_GPIO_PIN_RST; 
+  GPIO_Init(LCD_GPIO_RST, &GPIO_InitStructure);
 }
 
 /*
@@ -360,7 +344,11 @@ static void LCD_Hardware_Init()
 void lcdOff()
 {
   WAIT_FOR_DMA_END();
-  AspiCmd(0xE2);    //system reset
+  /* 
+  LCD Sleep mode is also good for draining capacitors and enables us
+  to re-init LCD without any delay
+  */
+  AspiCmd(0xAE);    //LCD sleep
   Delay(3);	        //wait for caps to drain
 }
 
@@ -371,12 +359,11 @@ void lcdOff()
 
   Make sure that Delay() is functional before calling this function!
 */
-void lcdInitStart()
+void lcdInit()
 {
-  LCD_BL_Config();
   LCD_Hardware_Init();
 
-  if (WAS_RESET_BY_WATCHDOG()|WAS_RESET_BY_SOFTWARE()) return;    //no need to reset LCD module
+  if (WAS_RESET_BY_WATCHDOG_OR_SOFTWARE()) return;    //no need to reset LCD module
 
   //reset LCD module
   LCD_RST_LOW();
@@ -385,39 +372,42 @@ void lcdInitStart()
 }
 
 /*
-  Finishes LCD initialization. Must be called after the lcdInitStart().
+  Finishes LCD initialization. It is called auto-magically when first LCD command is 
+  issued by the other parts of the code.
 */
 void lcdInitFinish()
 {
-#if !defined(BOOT)
   lcdInitFinished = true;
-#endif
 
 #if defined(REVPLUS)
   initLcdSpi();
 #endif
   
-  if (WAS_RESET_BY_WATCHDOG()|WAS_RESET_BY_SOFTWARE()) return;    //no need to initialize LCD module
-
   /*
     LCD needs longer time to initialize in low temperatures. The data-sheet 
     mentions a time of at least 150 ms. The delay of 1300 ms was obtained 
     experimentally. It was tested down to -10 deg Celsius.
 
     The longer initialization time seems to only be needed for regular Taranis, 
-    the Taranis Plus has been reported by users to work without any problems.
+    the Taranis Plus (9XE) has been tested to work without any problems at -18 deg Celsius.
     Therefore the delay for T+ is lower.
     
-    If radio is reset by watchdog or boot-loader LCD initialization is skipped,
-    because it was already initialized in previous run.
+    If radio is reset by watchdog or boot-loader the wait is skipped, but the LCD
+    is initialized in any case. 
+
+    This initialization is needed in case the user moved power switch to OFF and 
+    then immediately to ON position, because lcdOff() was called. In any case the LCD 
+    initialization (without reset) is also recommended by the data sheet.
   */
 
+  if (!WAS_RESET_BY_WATCHDOG_OR_SOFTWARE()) {
 #if !defined(BOOT)
-  while(g_tmr10ms < (RESET_WAIT_DELAY_MS/10)) {};    //wait measured from the power-on
+    while(g_tmr10ms < (RESET_WAIT_DELAY_MS/10)) {};    //wait measured from the power-on
 #else
-  Delay(RESET_WAIT_DELAY_MS);
+    Delay(RESET_WAIT_DELAY_MS);
 #endif
-
+  }
+  
   LCD_Init();
   AspiCmd(0xAF);	//dc2=1, IC into exit SLEEP MODE, dc3=1 gray=ON, dc4=1 Green Enhanc mode disabled
   Delay(20);      //needed for internal DC-DC converter startup
@@ -425,21 +415,36 @@ void lcdInitFinish()
 
 void lcdSetRefVolt(uint8_t val)
 {
+  if (!lcdInitFinished) {
+    lcdInitFinish();
+  }
   WAIT_FOR_DMA_END();
   AspiCmd(0x81);	//Set Vop
   AspiCmd(val+CONTRAST_OFS);		//0--255
 }
 
-#if defined(REVPLUS)
+#if defined(REV9E)
 void turnBacklightOn(uint8_t level, uint8_t color)
 {
-  TIM4->CCR4 = ((100-level)*(20-color))/20;
-  TIM4->CCR2 = ((100-level)*color)/20;
+  BACKLIGHT_TIMER->CCR1 = ((100-level)*(20-color))/20;
+  BACKLIGHT_TIMER->CCR2 = ((100-level)*color)/20;
 }
 
 void turnBacklightOff(void)
 {
-  TIM4->CCR4 = 0;
-  TIM4->CCR2 = 0;
+  BACKLIGHT_TIMER->CCR1 = 0;
+  BACKLIGHT_TIMER->CCR2 = 0;
+}
+#elif defined(REVPLUS)
+void turnBacklightOn(uint8_t level, uint8_t color)
+{
+  BACKLIGHT_TIMER->CCR4 = ((100-level)*(20-color))/20;
+  BACKLIGHT_TIMER->CCR2 = ((100-level)*color)/20;
+}
+
+void turnBacklightOff(void)
+{
+  BACKLIGHT_TIMER->CCR4 = 0;
+  BACKLIGHT_TIMER->CCR2 = 0;
 }
 #endif

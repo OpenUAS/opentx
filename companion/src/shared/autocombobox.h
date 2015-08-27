@@ -13,6 +13,7 @@ class AutoComboBox: public QComboBox
       QComboBox(parent),
       field(NULL),
       panel(NULL),
+      next(0),
       lock(false)
     {
       connect(this, SIGNAL(currentIndexChanged(int)), this, SLOT(onCurrentIndexChanged(int)));
@@ -22,10 +23,23 @@ class AutoComboBox: public QComboBox
     {
       lock = true;
       QComboBox::clear();
+      next = 0;
       lock = false;
     }
 
-    void addItem(const QString & item, int value)
+    virtual void insertItems(int index, const QStringList & items)
+    {
+      foreach(QString item, items) {
+        addItem(item);
+      }
+    }
+
+    virtual void addItem(const QString & item)
+    {
+      addItem(item, next++);
+    }
+
+    virtual void addItem(const QString & item, int value)
     {
       lock = true;
       QComboBox::addItem(item, value);
@@ -40,8 +54,7 @@ class AutoComboBox: public QComboBox
       this->field = (int *)&field;
       this->panel = panel;
       for (int i=0; i<count(); ++i) {
-        setItemData(i, i);
-        if ((int)field == i)
+        if ((int)field == itemData(i))
           setCurrentIndex(i);
       }
     }
@@ -51,8 +64,16 @@ class AutoComboBox: public QComboBox
       this->field = &field;
       this->panel = panel;
       for (int i=0; i<count(); ++i) {
+        if ((int)field == itemData(i))
+          setCurrentIndex(i);
+      }
+    }
+
+    void setAutoIndexes()
+    {
+      for (int i=0; i<count(); ++i) {
         setItemData(i, i);
-        if ((int)field == i)
+        if (*this->field == i)
           setCurrentIndex(i);
       }
     }
@@ -71,6 +92,7 @@ class AutoComboBox: public QComboBox
   protected:
     int * field;
     GenericPanel * panel;
+    int next;
     bool lock;
 };
 

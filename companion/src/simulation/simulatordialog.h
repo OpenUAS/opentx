@@ -3,7 +3,9 @@
 
 #include <QDialog>
 #include "modeledit/node.h"
-#include "eeprominterface.h"
+#include "telemetrysimu.h"
+#include "trainersimu.h"
+#include "debugoutput.h"
 
 #ifdef JOYSTICKS
 #include "joystick.h"
@@ -25,19 +27,28 @@ namespace Ui {
 class lcdWidget;
 class mySlider;
 
-#define SIMULATOR_FLAGS_NOTX            1
-#define SIMULATOR_FLAGS_STICK_MODE_LEFT 2
+#define SIMULATOR_FLAGS_NOTX              1
+#define SIMULATOR_FLAGS_STICK_MODE_LEFT   2
+#define SIMULATOR_FLAGS_S1                4
+#define SIMULATOR_FLAGS_S2                8
+#define SIMULATOR_FLAGS_S3               16
+#define SIMULATOR_FLAGS_S4               32 // reserved for the future
+#define SIMULATOR_FLAGS_S1_MULTI         64
+#define SIMULATOR_FLAGS_S2_MULTI        128
+#define SIMULATOR_FLAGS_S3_MULTI        256
+#define SIMULATOR_FLAGS_S4_MULTI        512 // reserved for the future
 
 class SimulatorDialog : public QDialog
 {
   Q_OBJECT
 
   public:
-    explicit SimulatorDialog(QWidget * parent = NULL, unsigned int flags=0);
+    explicit SimulatorDialog(QWidget * parent, SimulatorInterface *simulator, unsigned int flags=0);
     virtual ~SimulatorDialog();
 
     void start(const char * filename);
     void start(QByteArray & eeprom);
+    virtual void traceCallback(const char * text);
 
   protected:
     template <class T> void initUi(T * ui);
@@ -47,7 +58,11 @@ class SimulatorDialog : public QDialog
     unsigned int flags;
     lcdWidget * lcd;
     QGraphicsView * leftStick, * rightStick;
-    QDial * dialP_1, * dialP_2, * dialP_3, * dialP_4;
+    QVector<QDial *> pots;
+    QVector<QLabel *> potLabels;
+    QVector<QLabel *> potValues;
+    QVector<QSlider *> sliders;
+
     mySlider * trimHLeft, * trimVLeft, * trimHRight, * trimVRight;
     QLabel * leftXPerc, * rightXPerc, * leftYPerc, * rightYPerc;
     QTabWidget * tabWidget;
@@ -83,9 +98,7 @@ class SimulatorDialog : public QDialog
     virtual void getValues() = 0;
     void setValues();
     void centerSticks();
-    // void timerTick();
 
-    bool keyState(EnumKeys key);
     int getValue(qint8 i);
     bool getSwitch(int swtch, bool nc, qint8 level=0);
     void setTrims();
@@ -94,7 +107,16 @@ class SimulatorDialog : public QDialog
     int beepVal;
 
     int lcdWidth;
+    int lcdHeight;
     int lcdDepth;
+    TelemetrySimulator * TelemetrySimu;
+    TrainerSimulator * TrainerSimu;
+    DebugOutput * DebugOut;
+
+    QString traceBuffer;
+    QMutex traceMutex;
+    QList<QString> traceList;
+    void updateDebugOutput();
 
   protected:
     virtual void closeEvent(QCloseEvent *);
@@ -125,6 +147,10 @@ class SimulatorDialog : public QDialog
     void onTimerEvent();
     void onTrimPressed();
     void onTrimReleased();
+    void openTelemetrySimulator();
+    void openTrainerSimulator();
+    void openDebugOutput();
+    void onDebugOutputClose();
 
 #ifdef JOYSTICKS
     void onjoystickAxisValueChanged(int axis, int value);
@@ -137,7 +163,7 @@ class SimulatorDialog9X: public SimulatorDialog
   Q_OBJECT
 
   public:
-    explicit SimulatorDialog9X(QWidget * parent = NULL, unsigned int flags=0);
+    explicit SimulatorDialog9X(QWidget * parent, SimulatorInterface *simulator, unsigned int flags=0);
     virtual ~SimulatorDialog9X();
 
   protected:
@@ -147,8 +173,8 @@ class SimulatorDialog9X: public SimulatorDialog
     void saveSwitches(void);
     void restoreSwitches(void);
 
-  private slots:
-    void dialChanged();
+  protected slots:
+    void dialChanged(int index);
 
   private:
     Ui::SimulatorDialog9X * ui;
@@ -162,7 +188,7 @@ class SimulatorDialogTaranis: public SimulatorDialog
   Q_OBJECT
 
   public:
-    explicit SimulatorDialogTaranis(QWidget * parent = NULL, unsigned int flags=0);
+    explicit SimulatorDialogTaranis(QWidget * parent, SimulatorInterface *simulator, unsigned int flags=0);
     virtual ~SimulatorDialogTaranis();
 
   protected:

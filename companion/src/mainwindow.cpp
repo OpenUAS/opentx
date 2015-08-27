@@ -56,6 +56,8 @@
 #include "printdialog.h"
 #include "version.h"
 #include "contributorsdialog.h"
+#include "releasenotesdialog.h"
+#include "releasenotesfirmwaredialog.h"
 #include "customizesplashdialog.h"
 #include "flasheepromdialog.h"
 #include "flashfirmwaredialog.h"
@@ -68,15 +70,16 @@
 #include "radiointerface.h"
 #include "progressdialog.h"
 
-#define OPENTX_COMPANION_DOWNLOADS   "http://downloads-20.open-tx.org/companion"
-#define DONATE_STR      "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QUZ48K4SEXDP2"
+#define OPENTX_COMPANION_DOWNLOADS        "http://downloads-21.open-tx.org/companion"
+#define OPENTX_NIGHT_COMPANION_DOWNLOADS  "http://downloads-21.open-tx.org/nightly/companion"
+#define DONATE_STR                        "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=QUZ48K4SEXDP2"
 
 #ifdef __APPLE__
-  #define C9X_STAMP     OPENTX_COMPANION_DOWNLOADS "/companion-macosx.stamp"
-  #define C9X_INSTALLER "/companion-macosx-%1.dmg"
+  #define COMPANION_STAMP                 "companion-macosx.stamp"
+  #define COMPANION_INSTALLER             "companion-macosx-%1.dmg"
 #else
-  #define C9X_STAMP     OPENTX_COMPANION_DOWNLOADS "/companion-windows.stamp"
-  #define C9X_INSTALLER "/companion-windows-%1.exe"
+  #define COMPANION_STAMP                 "companion-windows.stamp"
+  #define COMPANION_INSTALLER             "companion-windows-%1.exe"
 #endif
 
 #if defined WIN32 || !defined __GNUC__
@@ -213,6 +216,15 @@ void MainWindow::dowloadLastFirmwareUpdate()
   checkForUpdates();
 }
 
+QString MainWindow::getCompanionUpdateBaseUrl()
+{
+#if defined(ALLOW_NIGHTLY_BUILDS)
+  return g.useCompanionNightlyBuilds() ? OPENTX_NIGHT_COMPANION_DOWNLOADS : OPENTX_COMPANION_DOWNLOADS;
+#else
+  return OPENTX_COMPANION_DOWNLOADS;
+#endif
+}
+
 void MainWindow::checkForUpdates()
 {
   if (checkForUpdatesState & SHOW_DIALOG_WAIT) {
@@ -226,7 +238,7 @@ void MainWindow::checkForUpdates()
     // TODO why create each time a network manager?
     networkManager = new QNetworkAccessManager(this);
     connect(networkManager, SIGNAL(finished(QNetworkReply*)),this, SLOT(checkForCompanionUpdateFinished(QNetworkReply*)));
-    QNetworkRequest request(QUrl(C9X_STAMP));
+    QNetworkRequest request(QUrl(QString("%1/%2").arg(getCompanionUpdateBaseUrl()).arg(COMPANION_STAMP)));
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
     networkManager->get(request);
   }
@@ -287,13 +299,13 @@ void MainWindow::checkForCompanionUpdateFinished(QNetworkReply * reply)
 
         if (ret == QMessageBox::Yes) {
 #if defined __APPLE__          
-          QString fileName = QFileDialog::getSaveFileName(this, tr("Save As"), g.updatesDir() + QString(C9X_INSTALLER).arg(version));
+          QString fileName = QFileDialog::getSaveFileName(this, tr("Save As"), g.updatesDir() + QString(COMPANION_INSTALLER).arg(version));
 #else            
-          QString fileName = QFileDialog::getSaveFileName(this, tr("Save As"), g.updatesDir() + QString(C9X_INSTALLER).arg(version), tr("Executable (*.exe)"));
+          QString fileName = QFileDialog::getSaveFileName(this, tr("Save As"), g.updatesDir() + QString(COMPANION_INSTALLER).arg(version), tr("Executable (*.exe)"));
 #endif
           if (!fileName.isEmpty()) {
             g.updatesDir(QFileInfo(fileName).dir().absolutePath());
-            downloadDialog * dd = new downloadDialog(this, QString(OPENTX_COMPANION_DOWNLOADS C9X_INSTALLER).arg(version), fileName);
+            downloadDialog * dd = new downloadDialog(this, QString("%1/%2").arg(getCompanionUpdateBaseUrl()).arg(QString(COMPANION_INSTALLER).arg(version)), fileName);
             installer_fileName = fileName;
             connect(dd, SIGNAL(accepted()), this, SLOT(updateDownloaded()));
             dd->exec();
@@ -403,6 +415,7 @@ void MainWindow::checkForFirmwareUpdateFinished(QNetworkReply * reply)
         QString currentVersionString = index2version(currentVersion);
 
         QMessageBox msgBox;
+        msgBox.setWindowTitle("Companion");
         QSpacerItem * horizontalSpacer = new QSpacerItem(500, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
         QGridLayout * layout = (QGridLayout*)msgBox.layout();
         layout->addItem(horizontalSpacer, layout->rowCount(), 0, 1, layout->columnCount());
@@ -410,8 +423,7 @@ void MainWindow::checkForFirmwareUpdateFinished(QNetworkReply * reply)
         if (currentVersion == 0) {
           QString rn = GetCurrentFirmware()->getReleaseNotesUrl();
           QAbstractButton *rnButton = NULL;
-          msgBox.setWindowTitle("Companion");
-          msgBox.setInformativeText(tr("Firmware %1 does not seem to have ever been downloaded.\nRelease %2 is available.\nDo you want to download it now?").arg(current_firmware_variant->getId()).arg(versionString));
+          msgBox.setText(tr("Firmware %1 does not seem to have ever been downloaded.\nRelease %2 is available.\nDo you want to download it now?\n\nWe recommend you view the release notes using the button below to learn about any changes that may be important to you.").arg(current_firmware_variant->getId()).arg(versionString));
           QAbstractButton *YesButton = msgBox.addButton(trUtf8("Yes"), QMessageBox::YesRole);
           msgBox.addButton(trUtf8("No"), QMessageBox::NoRole);
           if (!rn.isEmpty()) {
@@ -421,8 +433,8 @@ void MainWindow::checkForFirmwareUpdateFinished(QNetworkReply * reply)
           msgBox.resize(0, 0);
           msgBox.exec();
           if (msgBox.clickedButton() == rnButton) {
-            contributorsDialog *cd = new contributorsDialog(this,2,rn);
-            cd->exec();
+            ReleaseNotesFirmwareDialog * dialog = new ReleaseNotesFirmwareDialog(this, rn);
+            dialog->exec();
             int ret2 = QMessageBox::question(this, "Companion", tr("Do you want to download release %1 now ?").arg(versionString), QMessageBox::Yes | QMessageBox::No);
             if (ret2 == QMessageBox::Yes)
               download = true;
@@ -439,8 +451,7 @@ void MainWindow::checkForFirmwareUpdateFinished(QNetworkReply * reply)
         else if (version > currentVersion) {
           QString rn = GetCurrentFirmware()->getReleaseNotesUrl();
           QAbstractButton *rnButton = NULL;
-          msgBox.setText("Companion");
-          msgBox.setInformativeText(tr("A new version of %1 firmware is available:\n  - current is %2\n  - newer is %3\n\nDo you want to download it now ?").arg(current_firmware_variant->getId()).arg(currentVersionString).arg(versionString));
+          msgBox.setText(tr("A new version of %1 firmware is available:\n  - current is %2\n  - newer is %3\n\nDo you want to download it now?\n\nWe recommend you view the release notes using the button below to learn about any changes that may be important to you.").arg(current_firmware_variant->getId()).arg(currentVersionString).arg(versionString));
           QAbstractButton *YesButton = msgBox.addButton(trUtf8("Yes"), QMessageBox::YesRole);
           msgBox.addButton(trUtf8("No"), QMessageBox::NoRole);
           if (!rn.isEmpty()) {
@@ -450,8 +461,8 @@ void MainWindow::checkForFirmwareUpdateFinished(QNetworkReply * reply)
           msgBox.resize(0,0);
           msgBox.exec();
           if( msgBox.clickedButton() == rnButton ) {
-            contributorsDialog *cd = new contributorsDialog(this, 2, rn);
-            cd->exec();
+            ReleaseNotesFirmwareDialog * dialog = new ReleaseNotesFirmwareDialog(this, rn);
+            dialog->exec();
             int ret2 = QMessageBox::question(this, "Companion", tr("Do you want to download release %1 now ?").arg(versionString),
                   QMessageBox::Yes | QMessageBox::No);
             if (ret2 == QMessageBox::Yes) {
@@ -527,37 +538,22 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
 }
 
-void MainWindow::setLanguage(QString langString)
+void MainWindow::setLanguage(const QString & langString)
 {    
-    g.locale( langString );
-    
-    QMessageBox msgBox;
-    msgBox.setText(tr("The selected language will be used the next time you start Companion."));
-    msgBox.setIcon(QMessageBox::Information);
-    msgBox.addButton(tr("OK"), QMessageBox::AcceptRole);
-    msgBox.exec();
+  g.locale(langString);
+  QMessageBox::information(this, tr("Companion"), tr("The selected language will be used the next time you start Companion."));
 }
 
 void  MainWindow::setTheme(int index)
 {    
-    g.theme( index );
-    
-    QMessageBox msgBox;
-    msgBox.setText(tr("The new theme will be loaded the next time you start Companion."));
-    msgBox.setIcon(QMessageBox::Information);
-    msgBox.addButton(tr("OK"), QMessageBox::AcceptRole);
-    msgBox.exec();
+  g.theme(index);
+  QMessageBox::information(this, tr("Companion"), tr("The new theme will be loaded the next time you start Companion."));
 }
 
 void  MainWindow::setIconThemeSize(int index)
 {    
-    g.iconSize( index );
-
-    QMessageBox msgBox;
-    msgBox.setText(tr("The icon size will be used the next time you start Companion."));
-    msgBox.setIcon(QMessageBox::Information);
-    msgBox.addButton(tr("OK"), QMessageBox::AcceptRole);
-    msgBox.exec();
+  g.iconSize(index);
+  QMessageBox::information(this, tr("Companion"), tr("The icon size will be used the next time you start Companion."));
 }
 
 void MainWindow::newFile()
@@ -665,47 +661,53 @@ void MainWindow::fwPrefs()
 
 void MainWindow::contributors()
 {
-    contributorsDialog *cd = new contributorsDialog(this,0);
-    cd->exec();
+    ContributorsDialog * dialog = new ContributorsDialog(this);
+    dialog->exec();
 }
 
 void MainWindow::sdsync()
 {
+  QString sdPath = g.profile[g.id()].sdPath();
+  if (sdPath.isEmpty()) {
+    QMessageBox::warning(this, QObject::tr("Synchronization error"), QObject::tr("No SD directory configured!"));
+    return;
+  }
   QString massstoragePath = findMassstoragePath("SOUNDS");
   if (massstoragePath.isEmpty()) {
     QMessageBox::warning(this, QObject::tr("Synchronization error"), QObject::tr("No Radio connected!"));
     return;
   }
-  massstoragePath += "/..";
+  massstoragePath = massstoragePath.left(massstoragePath.length() - 7);
   ProgressDialog progressDialog(this, tr("Synchronize SD"), CompanionIcon("sdsync.png"));
   SyncProcess syncProcess(massstoragePath, g.profile[g.id()].sdPath(), progressDialog.progress());
-  syncProcess.run();
-  progressDialog.exec();
+  if (!syncProcess.run()) {
+    progressDialog.exec();
+  }
 }
 
 void MainWindow::changelog()
 {
-    contributorsDialog *cd = new contributorsDialog(this,1);
-    cd->exec();
+  ReleaseNotesDialog * dialog = new ReleaseNotesDialog(this);
+  dialog->exec();
 }
 
 void MainWindow::fwchangelog()
 {
-    Firmware *currfirm = GetCurrentFirmware();
-    QString rn=currfirm->getReleaseNotesUrl();
-    if (rn.isEmpty()) {
-      QMessageBox::information(this, tr("Firmware updates"), tr("Current firmware does not provide release notes informations."));
-    }
-    else {
-      contributorsDialog *cd = new contributorsDialog(this,2, rn);
-      cd->exec();
-    }
+  Firmware * firmware = GetCurrentFirmware();
+  QString url = firmware->getReleaseNotesUrl();
+  if (url.isEmpty()) {
+    QMessageBox::information(this, tr("Firmware updates"), tr("Current firmware does not provide release notes informations."));
+  }
+  else {
+    ReleaseNotesFirmwareDialog * dialog = new ReleaseNotesFirmwareDialog(this, url);
+    dialog->exec();
+  }
 }
 
 void MainWindow::customizeSplash()
 {    
-    customizeSplashDialog *cd = new customizeSplashDialog(this);
-    cd->exec();
+  customizeSplashDialog * dialog = new customizeSplashDialog(this);
+  dialog->exec();
 }
 
 void MainWindow::cut()
@@ -780,25 +782,41 @@ void MainWindow::readEeprom()
 bool MainWindow::readFirmwareFromRadio(const QString &filename)
 {
   ProgressDialog progressDialog(this, tr("Read Firmware from Radio"), CompanionIcon("read_flash.png"));
-  return readFirmware(filename, progressDialog.progress());
+  bool result = readFirmware(filename, progressDialog.progress());
+  if (!result) {
+    progressDialog.exec();
+  }
+  return result;
 }
 
 bool MainWindow::writeFirmwareToRadio(const QString &filename)
 {
   ProgressDialog progressDialog(this, tr("Write Firmware to Radio"), CompanionIcon("write_flash.png"));
-  return writeFirmware(filename, progressDialog.progress());
+  bool result = writeFirmware(filename, progressDialog.progress());
+  if (!result) {
+    progressDialog.exec();
+  }
+  return result;
 }
 
 bool MainWindow::readEepromFromRadio(const QString &filename)
 {
   ProgressDialog progressDialog(this, tr("Read Models and Settings from Radio"), CompanionIcon("read_eeprom.png"));
-  return ::readEeprom(filename, progressDialog.progress());
+  bool result = ::readEeprom(filename, progressDialog.progress());
+  if (!result) {
+    progressDialog.exec();
+  }
+  return result;
 }
 
 bool MainWindow::writeEepromToRadio(const QString &filename)
 {
   ProgressDialog progressDialog(this, tr("Write Models and Settings to Radio"), CompanionIcon("write_eeprom.png"));
-  return ::writeEeprom(filename, progressDialog.progress());
+  bool result = ::writeEeprom(filename, progressDialog.progress());
+  if (!result) {
+    progressDialog.exec();
+  }
+  return result;
 }
 
 void MainWindow::writeBackup()
@@ -862,14 +880,14 @@ void MainWindow::burnFuses()
 
 void MainWindow::compare()
 {
-  CompareDialog *fd = new CompareDialog(this);
+  CompareDialog *fd = new CompareDialog(this,GetCurrentFirmware());
   fd->setAttribute(Qt::WA_DeleteOnClose, true);
   fd->show();
 }
 
 void MainWindow::logFile()
 {
-  logsDialog *fd = new logsDialog(this);
+  LogsDialog *fd = new LogsDialog(this);
   fd->setWindowFlags(Qt::Window);   //to show minimize an maximize buttons
   fd->setAttribute(Qt::WA_DeleteOnClose, true);
   fd->show();
@@ -886,18 +904,12 @@ void MainWindow::about()
     aboutStr.append("<br/><br/>");
     aboutStr.append(QString("Version %1, %2").arg(C9X_VERSION).arg(__DATE__));
     aboutStr.append("<br/><br/>");
-    aboutStr.append(tr("Copyright OpenTX Team") + "<br/>&copy; 2011-2014<br/>");
+    aboutStr.append(tr("Copyright OpenTX Team") + "<br/>&copy; 2011-2015<br/>");
     QMessageBox msgBox(this);
     msgBox.setWindowIcon(CompanionIcon("information.png"));
     msgBox.setWindowTitle(tr("About Companion"));
     msgBox.setText(aboutStr);
     msgBox.exec();
-}
-
-void MainWindow::updateSdsyncAction()
-{
-  QTimer::singleShot(1000, this, SLOT(updateSdsyncAction()));
-  sdsyncAct->setEnabled(!findMassstoragePath("SOUNDS").isEmpty());
 }
 
 void MainWindow::updateMenus()
@@ -916,13 +928,12 @@ void MainWindow::updateMenus()
     printAct->setEnabled(hasSelection);
     loadbackupAct->setEnabled(hasMdiChild);
     compareAct->setEnabled(activeMdiChild());
-    updateSdsyncAction();
     updateRecentFileActions();
     updateProfilesActions();
     updateLanguageActions();
     updateIconSizeActions();
     updateIconThemeActions();
-    setWindowTitle(tr("OpenTX Companion - FW: %1 - Profile: %2").arg(GetCurrentFirmware()->getName()).arg( g.profile[g.id()].name() ));
+    setWindowTitle(tr("OpenTX Companion %1 - Radio: %2 - Profile: %3").arg(C9X_VERSION).arg(GetCurrentFirmware()->getName()).arg(g.profile[g.id()].name()));
 }
 
 MdiChild *MainWindow::createMdiChild()
@@ -1031,6 +1042,7 @@ void MainWindow::createActions()
 //    hebrewLangAct =      addAct( langAlignGroup,     tr("Hebrew"),          tr("Use Hebrew in menus"),                  SLOT(setHELanguage()));
     polishLangAct =      addAct( langAlignGroup,     tr("Polish"),          tr("Use Polish in menus"),                  SLOT(setPLLanguage()));
 //    portugueseLangAct =  addAct( langAlignGroup,     tr("Portuguese"),      tr("Use Portuguese in menus"),              SLOT(setPTLanguage()));
+    spanishLangAct =     addAct( langAlignGroup,     tr("Spanish"),         tr("Use Spanish in menus"),                 SLOT(setESLanguage()));
     swedishLangAct =     addAct( langAlignGroup,     tr("Swedish"),         tr("Use Swedish in menus"),                 SLOT(setSELanguage()));
 //    russianLangAct =     addAct( langAlignGroup,     tr("Russian"),         tr("Use Russian in menus"),                 SLOT(setRULanguage()));
 //    dutchLangAct =       addAct( langAlignGroup,     tr("Dutch"),           tr("Use Dutch in menus"),                   SLOT(setNLLanguage()));
@@ -1110,6 +1122,7 @@ void MainWindow::createMenus()
       languageMenu->addAction(italianLangAct);
       languageMenu->addAction(polishLangAct);
 //      languageMenu->addAction(portugueseLangAct);
+      languageMenu->addAction(spanishLangAct);
       languageMenu->addAction(swedishLangAct);
 //      languageMenu->addAction(russianLangAct);
 //      languageMenu->addAction(dutchLangAct);
@@ -1361,6 +1374,8 @@ void MainWindow::updateLanguageActions()
     portugueseLangAct->setChecked(true);
   else if (langId=="ru_RU") 
     russianLangAct->setChecked(true);
+  else if (langId=="es_ES")
+    spanishLangAct->setChecked(true);
   else if (langId=="sv_SE") 
     swedishLangAct->setChecked(true);
   else if (langId=="nl_NL") 

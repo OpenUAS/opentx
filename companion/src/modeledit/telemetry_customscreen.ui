@@ -2,12 +2,20 @@
 <ui version="4.0">
  <class>TelemetryCustomScreen</class>
  <widget class="QWidget" name="TelemetryCustomScreen">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>915</width>
+    <height>305</height>
+   </rect>
+  </property>
   <property name="windowTitle">
    <string/>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <layout class="QHBoxLayout" name="screenScript" stretch="0,0,1">
+    <layout class="QHBoxLayout" name="screenScript" stretch="0,0,0,1">
      <item>
       <widget class="QLabel" name="screenTypeLabel">
        <property name="sizePolicy">
@@ -28,7 +36,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="screenType">
+      <widget class="AutoComboBox" name="screenType">
        <property name="sizePolicy">
         <sizepolicy hsizetype="MinimumExpanding" vsizetype="Fixed">
          <horstretch>0</horstretch>
@@ -41,30 +49,17 @@
          <height>0</height>
         </size>
        </property>
-       <item>
-        <property name="text">
-         <string>None</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Numbers</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Bars</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Script</string>
-        </property>
-       </item>
       </widget>
      </item>
      <item>
-      <spacer name="horizontalSpacer_16">
+      <widget class="QComboBox" name="scriptName">
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
@@ -82,7 +77,7 @@
     <widget class="QGroupBox" name="screenBars">
      <layout class="QGridLayout" name="screenBarsLayout" columnstretch="1,0,1,0">
       <item row="0" column="1">
-       <widget class="QLabel" name="label_266">
+       <widget class="QLabel" name="minLabel">
         <property name="text">
          <string>Min</string>
         </property>
@@ -92,7 +87,7 @@
        </widget>
       </item>
       <item row="0" column="0">
-       <widget class="QLabel" name="label_265">
+       <widget class="QLabel" name="sourceLabel">
         <property name="text">
          <string>Source</string>
         </property>
@@ -102,7 +97,7 @@
        </widget>
       </item>
       <item row="0" column="2">
-       <widget class="QLabel" name="label_267">
+       <widget class="QLabel" name="gaugeLabel">
         <property name="text">
          <string>Gauge</string>
         </property>
@@ -112,7 +107,7 @@
        </widget>
       </item>
       <item row="0" column="3">
-       <widget class="QLabel" name="label_268">
+       <widget class="QLabel" name="maxLabel">
         <property name="text">
          <string>Max</string>
         </property>
@@ -131,6 +126,13 @@
    </item>
   </layout>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>AutoComboBox</class>
+   <extends>QComboBox</extends>
+   <header>autocombobox.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

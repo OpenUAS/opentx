@@ -4,6 +4,7 @@
 #include "ui_setup_module.h"
 #include "helpers.h"
 #include "appdata.h"
+#include "modelprinter.h"
 
 TimerPanel::TimerPanel(QWidget *parent, ModelData & model, TimerData & timer, GeneralSettings & generalSettings, Firmware * firmware, QWidget *prevFocus):
   ModelPanel(parent, model, generalSettings, firmware),
@@ -35,10 +36,11 @@ TimerPanel::TimerPanel(QWidget *parent, ModelData & model, TimerData & timer, Ge
   }
 
   ui->countdownBeep->setField(timer.countdownBeep, this);
-  ui->countdownBeep->addItem(tr("Silent"), 0);
-  ui->countdownBeep->addItem(tr("Beeps"), 1);
+  ui->countdownBeep->addItem(tr("Silent"), TimerData::COUNTDOWN_SILENT);
+  ui->countdownBeep->addItem(tr("Beeps"), TimerData::COUNTDOWN_BEEPS);
   if (IS_ARM(board) || IS_2560(board)) {
-    ui->countdownBeep->addItem(tr("Voice"), 2);
+    ui->countdownBeep->addItem(tr("Voice"), TimerData::COUNTDOWN_VOICE);
+    ui->countdownBeep->addItem(tr("Haptic"), TimerData::COUNTDOWN_HAPTIC);
   }
 
   ui->persistent->setField(timer.persistent, this);
@@ -119,6 +121,9 @@ void TimerPanel::on_name_editingFinished()
 
 /******************************************************************************/
 
+#define FAILSAFE_CHANNEL_HOLD    2000
+#define FAILSAFE_CHANNEL_NOPULSE 2001
+
 ModulePanel::ModulePanel(QWidget *parent, ModelData & model, ModuleData & module, GeneralSettings & generalSettings, Firmware * firmware, int moduleIdx):
   ModelPanel(parent, model, generalSettings, firmware),
   module(module),
@@ -164,26 +169,35 @@ ModulePanel::ModulePanel(QWidget *parent, ModelData & model, ModuleData & module
   // The protocols available on this board
   for (int i=0; i<PROTO_LAST; i++) {
     if (GetEepromInterface()->isAvailable((Protocol)i, moduleIdx)) {
-      ui->protocol->addItem(getProtocolStr(i), (QVariant)i);
+      ui->protocol->addItem(ModelPrinter::printModuleProtocol(i), (QVariant)i);
       if (i == module.protocol) ui->protocol->setCurrentIndex(ui->protocol->count()-1);
     }
   }
 
   if (firmware->getCapability(HasFailsafe)) {
-    for (int i=0; i<16; i++) {
+    for (int i=0; i<maxChannels; i++) {
       QLabel * label = new QLabel(this);
       label->setText(QString::number(i+1));
+      QComboBox * combo = new QComboBox(this);
+      combo->setProperty("index", i);
+      combo->addItem(tr("Value"), 0);
+      combo->addItem(tr("Hold"), FAILSAFE_CHANNEL_HOLD);
+      combo->addItem(tr("No Pulse"), FAILSAFE_CHANNEL_NOPULSE);
       QDoubleSpinBox * spinbox = new QDoubleSpinBox(this);
       spinbox->setMinimumSize(QSize(20, 0));
       spinbox->setRange(-150, 150);
       spinbox->setSingleStep(0.1);
       spinbox->setDecimals(1);
-      spinbox->setValue(((double)module.failsafeChannels[i]*100)/1024);
       label->setProperty("index", i);
       spinbox->setProperty("index", i);
       failsafeSpins << spinbox;
-      ui->failsafesLayout->addWidget(label, 2*(i/8), i%8, Qt::AlignHCenter);
-      ui->failsafesLayout->addWidget(spinbox, 1+2*(i/8), i%8, Qt::AlignHCenter);
+      ui->failsafesLayout->addWidget(label, 3*(i/8), i%8, Qt::AlignHCenter);
+      ui->failsafesLayout->addWidget(combo, 1+3*(i/8), i%8, Qt::AlignHCenter);
+      ui->failsafesLayout->addWidget(spinbox, 2+3*(i/8), i%8, Qt::AlignHCenter);
+      failsafeGroups[i].combo = combo;
+      failsafeGroups[i].spinbox = spinbox;
+      updateFailsafe(i);
+      connect(combo, SIGNAL(currentIndexChanged(int)), this, SLOT(onFailsafeComboIndexChanged(int)));
       connect(spinbox, SIGNAL(valueChanged(double)), this, SLOT(onFailsafeSpinChanged(double)));
     }
   }
@@ -204,6 +218,7 @@ ModulePanel::~ModulePanel()
 #define MASK_CHANNELS_RANGE 8
 #define MASK_PPM_FIELDS     16
 #define MASK_FAILSAFES      32
+#define MASK_OPEN_DRAIN     64
 
 void ModulePanel::update()
 {
@@ -230,13 +245,28 @@ void ModulePanel::update()
         break;
       case PPM:
         mask |= MASK_PPM_FIELDS | MASK_CHANNELS_RANGE| MASK_CHANNELS_COUNT;
+        if (IS_9XRPRO(firmware->getBoard())) {
+          mask |= MASK_OPEN_DRAIN;
+        }
         break;
       case OFF:
       default:
         break;
     }
   }
-  else if (!IS_TARANIS(firmware->getBoard()) || model->trainerMode != 0) {
+  else if (IS_TARANIS(firmware->getBoard())) {
+    switch(model->trainerMode) {
+      case MASTER_JACK:
+        break;
+      case SLAVE_JACK:
+        mask |= MASK_PPM_FIELDS | MASK_CHANNELS_RANGE | MASK_CHANNELS_COUNT;
+        break;
+      default:
+        mask |= MASK_CHANNELS_RANGE | MASK_CHANNELS_COUNT;
+        break;
+    }
+  }
+  else if (model->trainerMode != MASTER_JACK) {
     mask |= MASK_PPM_FIELDS | MASK_CHANNELS_RANGE | MASK_CHANNELS_COUNT;
   }
 
@@ -245,7 +275,7 @@ void ModulePanel::update()
   ui->label_rxNumber->setVisible(mask & MASK_RX_NUMBER);
   ui->rxNumber->setVisible(mask & MASK_RX_NUMBER);
   ui->rxNumber->setMaximum(max_rx_num);
-  ui->rxNumber->setValue(model->modelId);
+  ui->rxNumber->setValue(module.modelId);
   ui->label_channelsStart->setVisible(mask & MASK_CHANNELS_RANGE);
   ui->channelsStart->setVisible(mask & MASK_CHANNELS_RANGE);
   ui->channelsStart->setValue(module.channelsStart+1);
@@ -259,6 +289,9 @@ void ModulePanel::update()
   ui->label_ppmPolarity->setVisible(mask & MASK_PPM_FIELDS);
   ui->ppmPolarity->setVisible(mask & MASK_PPM_FIELDS);
   ui->ppmPolarity->setCurrentIndex(module.ppmPulsePol);
+  ui->label_ppmOutputType->setVisible(mask & MASK_OPEN_DRAIN);
+  ui->ppmOutputType->setVisible(mask & MASK_OPEN_DRAIN);
+  ui->ppmOutputType->setCurrentIndex(module.ppmOutputType);
   ui->label_ppmDelay->setVisible(mask & MASK_PPM_FIELDS);
   ui->ppmDelay->setVisible(mask & MASK_PPM_FIELDS);
   ui->ppmDelay->setValue(module.ppmDelay);
@@ -272,12 +305,12 @@ void ModulePanel::update()
     ui->label_failsafeMode->setVisible(mask & MASK_FAILSAFES);
     ui->failsafeMode->setVisible(mask & MASK_FAILSAFES);
     ui->failsafeMode->setCurrentIndex(module.failsafeMode);
-    ui->failsafesFrame->setEnabled(module.failsafeMode == 1);
+    ui->failsafesFrame->setEnabled(module.failsafeMode == FAILSAFE_CUSTOM);
   }
   else {
     mask = 0;
   }
-  
+
   ui->failsafesLayoutLabel->setVisible(mask & MASK_FAILSAFES);
   ui->failsafesFrame->setVisible(mask & MASK_FAILSAFES);
 }
@@ -303,6 +336,12 @@ void ModulePanel::on_protocol_currentIndexChanged(int index)
 void ModulePanel::on_ppmPolarity_currentIndexChanged(int index)
 {
   module.ppmPulsePol = index;
+  emit modified();
+}
+
+void ModulePanel::on_ppmOutputType_currentIndexChanged(int index)
+{
+  module.ppmOutputType = index;
   emit modified();
 }
 
@@ -335,7 +374,7 @@ void ModulePanel::on_ppmDelay_editingFinished()
 
 void ModulePanel::on_rxNumber_editingFinished()
 {
-  model->modelId = ui->rxNumber->value();
+  module.modelId = ui->rxNumber->value();
   emit modified();
 }
 
@@ -357,9 +396,43 @@ void ModulePanel::on_failsafeMode_currentIndexChanged(int value)
 void ModulePanel::onFailsafeSpinChanged(double value)
 {
   if (!lock) {
-    int index = sender()->property("index").toInt();
-    module.failsafeChannels[index] = (value*1024)/100;
+    int channel = sender()->property("index").toInt();
+    module.failsafeChannels[channel] = (value*1024)/100;
     emit modified();
+  }
+}
+
+void ModulePanel::onFailsafeComboIndexChanged(int index)
+{
+  if (!lock) {
+    lock = true;
+    int channel = sender()->property("index").toInt();
+    module.failsafeChannels[channel] = ((QComboBox *)sender())->itemData(index).toInt();
+    updateFailsafe(channel);
+    emit modified();
+    lock = false;
+  }
+}
+
+void ModulePanel::updateFailsafe(int channel)
+{
+  int failsafeValue = module.failsafeChannels[channel];
+  QComboBox * combo = failsafeGroups[channel].combo;
+  QDoubleSpinBox * spinbox = failsafeGroups[channel].spinbox;
+  if (failsafeValue == FAILSAFE_CHANNEL_HOLD) {
+    combo->setCurrentIndex(1);
+    spinbox->setEnabled(false);
+    spinbox->setValue(0);
+  }
+  else if (failsafeValue == FAILSAFE_CHANNEL_NOPULSE) {
+    combo->setCurrentIndex(2);
+    spinbox->setEnabled(false);
+    spinbox->setValue(0);
+  }
+  else {
+    combo->setCurrentIndex(0);
+    spinbox->setEnabled(true);
+    spinbox->setValue(((double)failsafeValue*100)/1024);
   }
 }
 
@@ -377,6 +450,8 @@ SetupPanel::SetupPanel(QWidget *parent, ModelData & model, GeneralSettings & gen
 
   ui->setupUi(this);
 
+  QRegExp rx(CHAR_FOR_NAMES_REGEX);
+  ui->name->setValidator(new QRegExpValidator(rx, this));
   ui->name->setMaxLength(IS_TARANIS(board) ? 12 : 10);
 
   if (firmware->getCapability(ModelImage)) {
@@ -440,14 +515,18 @@ SetupPanel::SetupPanel(QWidget *parent, ModelData & model, GeneralSettings & gen
       }
     }
   }
-  
+
   if (!firmware->getCapability(HasDisplayText)) {
     ui->displayText->hide();
+  }
+  
+  if (!firmware->getCapability(GlobalFunctions)) {
+    ui->gfEnabled->hide();
   }
 
   // Beep Center checkboxes
   prevFocus = ui->trimsDisplay;
-  int analogs = 4 + firmware->getCapability(Pots);
+  int analogs = NUM_STICKS + firmware->getCapability(Pots) + firmware->getCapability(Sliders);
   for (int i=0; i<analogs+firmware->getCapability(RotaryEncoders); i++) {
     QCheckBox * checkbox = new QCheckBox(this);
     checkbox->setProperty("index", i);
@@ -455,8 +534,14 @@ SetupPanel::SetupPanel(QWidget *parent, ModelData & model, GeneralSettings & gen
     ui->centerBeepLayout->addWidget(checkbox, 0, i+1);
     connect(checkbox, SIGNAL(toggled(bool)), this, SLOT(onBeepCenterToggled(bool)));
     centerBeepCheckboxes << checkbox;
-    if (!IS_TARANIS_PLUS(board) && i==6) {
-      checkbox->hide();
+    if (IS_TARANIS(board)) {
+      RawSource src(SOURCE_TYPE_STICK, i);
+      if (src.isPot() && !generalSettings.isPotAvailable(i-NUM_STICKS)) {
+        checkbox->hide();
+      }
+      else if (src.isSlider() && !generalSettings.isSliderAvailable(i-NUM_STICKS-firmware->getCapability(Pots))) {
+        checkbox->hide();
+      }
     }
     QWidget::setTabOrder(prevFocus, checkbox);
     prevFocus = checkbox;
@@ -464,35 +549,38 @@ SetupPanel::SetupPanel(QWidget *parent, ModelData & model, GeneralSettings & gen
 
   // Startup switches warnings
   for (int i=0; i<firmware->getCapability(Switches); i++) {
-    if (!IS_TARANIS(firmware->getBoard()) && i==firmware->getCapability(Switches)-1)
-      continue;
+    if (IS_TARANIS(firmware->getBoard())) {
+      if (generalSettings.switchConfig[i] == GeneralSettings::SWITCH_NONE || generalSettings.switchConfig[i] == GeneralSettings::SWITCH_TOGGLE) {
+        continue;
+      }
+    }
+    else {
+      if (i==firmware->getCapability(Switches)-1) {
+        continue;
+      }
+    }
     QLabel * label = new QLabel(this);
     QSlider * slider = new QSlider(this);
     QCheckBox * cb = new QCheckBox(this);
-    if (IS_TARANIS(firmware->getBoard()) && !generalSettings.isSwitchWarningAllowedTaranis(i)) {
-      label->hide();
-      slider->hide();
-      cb->hide();
-    }
-    slider->setProperty("index", i+1);
+    slider->setProperty("index", i);
     slider->setOrientation(Qt::Vertical);
     slider->setMinimum(0);
-    slider->setSingleStep(1);
-    slider->setPageStep(1);
     slider->setInvertedAppearance(true);
     slider->setTickPosition(QSlider::TicksBothSides);
-    slider->setTickInterval(1);
     slider->setMinimumSize(QSize(30, 50));
     slider->setMaximumSize(QSize(50, 50));
+    slider->setSingleStep(1);
+    slider->setPageStep(1);
+    slider->setTickInterval(1);
     if (IS_TARANIS(board)) {
       label->setText(switchesX9D[i]);
-      slider->setMaximum((i==5 || i>=7) ? 1 : 2);
+      slider->setMaximum(generalSettings.switchConfig[i] == GeneralSettings::SWITCH_3POS ? 2 : 1);
     }
     else {
       label->setText(switches9X[i]);
       slider->setMaximum(i==0 ? 2 : 1);
     }
-    cb->setProperty("index", i+1);
+    cb->setProperty("index", i);
     ui->switchesStartupLayout->addWidget(label, 0, i+1);
     ui->switchesStartupLayout->setAlignment(label, Qt::AlignCenter);
     ui->switchesStartupLayout->addWidget(slider, 1, i+1);
@@ -512,15 +600,22 @@ SetupPanel::SetupPanel(QWidget *parent, ModelData & model, GeneralSettings & gen
   // Pot warnings
   prevFocus = ui->potWarningMode;
   if (IS_TARANIS(board)) {
-    for (int i=0; i<firmware->getCapability(Pots); i++) {
+    for (int i=0; i<firmware->getCapability(Pots)+firmware->getCapability(Sliders); i++) {
       QCheckBox * cb = new QCheckBox(this);
-      cb->setProperty("index", i+1);
+      cb->setProperty("index", i);
       cb->setText(AnalogString(i+4));
       ui->potWarningLayout->addWidget(cb, 0, i+1);
       connect(cb, SIGNAL(toggled(bool)), this, SLOT(potWarningToggled(bool)));
       potWarningCheckboxes << cb;
-      if (!IS_TARANIS_PLUS(board) && i==2) {
-        cb->hide();
+      if (RawSource(SOURCE_TYPE_STICK, NUM_STICKS+i).isPot()) {
+        if (!generalSettings.isPotAvailable(i)) {
+          cb->hide();
+        }
+      }
+      else {
+        if (!generalSettings.isSliderAvailable(i-firmware->getCapability(Pots))) {
+          cb->hide();
+        }
       }
       QWidget::setTabOrder(prevFocus, cb);
       prevFocus = cb;
@@ -663,7 +758,7 @@ void SetupPanel::populateThrottleSourceCB()
 
   int channels = (IS_ARM(GetEepromInterface()->getBoard()) ? 32 : 16);
   for (int i=0; i<channels; i++) {
-    ui->throttleSource->addItem(QObject::tr("CH%1").arg(i+1, 2, 10, QChar('0')), THROTTLE_SOURCE_FIRST_CHANNEL+i);
+    ui->throttleSource->addItem(ModelPrinter::printChannelName(i), THROTTLE_SOURCE_FIRST_CHANNEL+i);
     if (model->thrTraceSrc == unsigned(THROTTLE_SOURCE_FIRST_CHANNEL+i))
       ui->throttleSource->setCurrentIndex(ui->throttleSource->count()-1);
   }
@@ -685,10 +780,11 @@ void SetupPanel::update()
   ui->extendedLimits->setChecked(model->extendedLimits);
   ui->extendedTrims->setChecked(model->extendedTrims);
   ui->displayText->setChecked(model->displayChecklist);
+  ui->gfEnabled->setChecked(!model->noGlobalFunctions);
 
   updateBeepCenter();
   updateStartupSwitches();
-  
+
   if(IS_TARANIS(GetEepromInterface()->getBoard())) {
     updatePotWarnings();
   }
@@ -711,25 +807,27 @@ void SetupPanel::updateBeepCenter()
 void SetupPanel::updateStartupSwitches()
 {
   lock = true;
-
+  
   unsigned int switchStates = model->switchWarningStates;
+  unsigned int value;
 
-  for (int i=0; i<firmware->getCapability(Switches); i++) {
-    if (!IS_TARANIS(firmware->getBoard()) && i==firmware->getCapability(Switches)-1)
-      continue;
-    QSlider * slider = startupSwitchesSliders[i];
+  for (int i=0; i<startupSwitchesSliders.size(); i++) {
+    QSlider *slider = startupSwitchesSliders[i];
     QCheckBox * cb = startupSwitchesCheckboxes[i];
-    bool enabled = !(model->switchWarningEnable & (1 << i));
-    slider->setEnabled(enabled);
-    cb->setChecked(enabled);
+    int index = slider->property("index").toInt();
+    bool enabled = !(model->switchWarningEnable & (1 << index));
     if (IS_TARANIS(GetEepromInterface()->getBoard())) {
-      slider->setValue((i==5 || i>=7) ? (switchStates & 0x3)/2 : switchStates & 0x3);
-      switchStates >>= 2;
+      value = (switchStates >> 2*index) & 0x03;
+      if (generalSettings.switchConfig[index] != GeneralSettings::SWITCH_3POS && value == 2)
+        value = 1;
     }
     else {
-      slider->setValue(i==0 ? switchStates & 0x3 : switchStates & 0x1);
+      value = (i==0 ? switchStates & 0x3 : switchStates & 0x1);
       switchStates >>= (i==0 ? 2 : 1);
     }
+    slider->setValue(value);
+    slider->setEnabled(enabled);
+    cb->setChecked(enabled);
   }
 
   lock = false;
@@ -743,27 +841,24 @@ void SetupPanel::startupSwitchEdited(int value)
     int index = sender()->property("index").toInt();
 
     if (IS_TARANIS(GetEepromInterface()->getBoard())) {
-      if (index == 6 || index >= 8) {
-        shift = (index - 1) * 2;
-        mask = 0x02 << shift;
-        shift++;
-      }
-      else {
-        shift = (index - 1) * 2;
-        mask = 0x03 << shift;
-      }
+      shift = index * 2;
+      mask = 0x03 << shift;
     }
     else {
-      if (index == 1) {
+      if (index == 0) {
         mask = 0x03;
       }
       else {
-        shift = index;
+        shift = index+1;
         mask = 0x01 << shift;
       }
     }
 
     model->switchWarningStates &= ~mask;
+    
+    if (IS_TARANIS(GetEepromInterface()->getBoard()) && generalSettings.switchConfig[index] != GeneralSettings::SWITCH_3POS) {
+      if (value == 1) value = 2;
+    }
 
     if (value) {
       model->switchWarningStates |= (value << shift);
@@ -777,8 +872,8 @@ void SetupPanel::startupSwitchEdited(int value)
 void SetupPanel::startupSwitchToggled(bool checked)
 {
   if (!lock) {
-    int index = sender()->property("index").toInt()-1;
-  
+    int index = sender()->property("index").toInt();
+
     if (checked)
       model->switchWarningEnable &= ~(1 << index);
     else
@@ -792,17 +887,12 @@ void SetupPanel::startupSwitchToggled(bool checked)
 void SetupPanel::updatePotWarnings()
 {
   lock = true;
-  int mode = model->nPotsToWarn >> 6;
-  ui->potWarningMode->setCurrentIndex(mode);
-
-  if (mode == 0)
-    model->nPotsToWarn = 0x3F;
-
+  ui->potWarningMode->setCurrentIndex(model->potsWarningMode);
   for (int i=0; i<potWarningCheckboxes.size(); i++) {
-    bool enabled = !(model->nPotsToWarn & (1 << i));
-
-    potWarningCheckboxes[i]->setChecked(enabled);
-    potWarningCheckboxes[i]->setDisabled(mode == 0);
+    QCheckBox *checkbox = potWarningCheckboxes[i];
+    int index = checkbox->property("index").toInt();
+    checkbox->setChecked(!model->potsWarningEnabled[index]);
+    checkbox->setDisabled(model->potsWarningMode == 0);
   }
   lock = false;
 }
@@ -810,13 +900,8 @@ void SetupPanel::updatePotWarnings()
 void SetupPanel::potWarningToggled(bool checked)
 {
   if (!lock) {
-    int index = sender()->property("index").toInt()-1;
-
-    if(checked)
-      model->nPotsToWarn &= ~(1 << index);
-    else
-      model->nPotsToWarn |= (1 << index);
-
+    int index = sender()->property("index").toInt();
+    model->potsWarningEnabled[index] = !checked;
     updatePotWarnings();
     emit modified();
   }
@@ -825,10 +910,7 @@ void SetupPanel::potWarningToggled(bool checked)
 void SetupPanel::on_potWarningMode_currentIndexChanged(int index)
 {
   if (!lock) {
-    int mask = 0xC0;
-    model->nPotsToWarn = model->nPotsToWarn & ~mask;
-    model->nPotsToWarn = model->nPotsToWarn | ((index << 6) & mask);
-
+    model->potsWarningMode = index;
     updatePotWarnings();
     emit modified();
   }
@@ -837,6 +919,12 @@ void SetupPanel::on_potWarningMode_currentIndexChanged(int index)
 void SetupPanel::on_displayText_toggled(bool checked)
 {
   model->displayChecklist = checked;
+  emit modified();
+}
+
+void SetupPanel::on_gfEnabled_toggled(bool checked)
+{
+  model->noGlobalFunctions = !checked;
   emit modified();
 }
 

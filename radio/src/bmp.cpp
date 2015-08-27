@@ -186,22 +186,11 @@ const pm_char * bmpLoad(uint8_t *bmp, const char *filename, const unsigned int w
           f_close(&bmpFile);
           return SDCARD_ERROR(result);
         }
-        for (uint32_t j=0; j<rowSize; j++) {
-          uint8_t * dst = dest + (i/2)*w + j*2;
-          if (i & 1) {
-            uint8_t val = palette[(buf[j] >> 4) & 0x0F] << 4;
-            *dst |= val ^ 0xF0;
-            if ((j+1)*2 >= w) break;
-            val = palette[buf[j] & 0x0F] << 4;
-            *(dst+1) |= val ^ 0xF0;
-          }
-          else {
-            uint8_t val = palette[(buf[j] >> 4) & 0x0F];
-            *dst |= val ^ 0x0F;
-            if ((j+1)*2 >= w) break;
-            val = palette[buf[j] & 0x0F];
-            *(dst+1) |= val ^ 0x0F;
-          }
+        uint8_t * dst = dest + (i/2)*w;
+        for (uint32_t j=0; j<w; j++) {
+          uint8_t index = (buf[j/2] >> ((j & 1) ? 0 : 4)) & 0x0F;
+          uint8_t val = palette[index] << ((i & 1) ? 4 : 0);
+          *dst++ |= val ^ ((i & 1) ? 0xF0 : 0x0F);
         }
       }
       break;
@@ -213,4 +202,71 @@ const pm_char * bmpLoad(uint8_t *bmp, const char *filename, const unsigned int w
 
   f_close(&bmpFile);
   return 0;
+}
+
+const uint8_t bmpHeader[] = {
+  0x42, 0x4d, 0xF8, 0x1A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x76, 0x00, 0x00, 0x00, 0x28, 0x00,
+  0x00, 0x00, 212,  0x00, 0x00, 0x00, 64,   0x00, 0x00, 0x00, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x02, 0x04, 0x00, 0x00, 0xbc, 0x38, 0x00, 0x00, 0xbc, 0x38, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0xee, 0xee, 0xee, 0x00, 0xdd, 0xdd,
+  0xdd, 0x00, 0xcc, 0xcc, 0xcc, 0x00, 0xbb, 0xbb, 0xbb, 0x00, 0xaa, 0xaa, 0xaa, 0x00, 0x99, 0x99,
+  0x99, 0x00, 0x88, 0x88, 0x88, 0x00, 0x77, 0x77, 0x77, 0x00, 0x66, 0x66, 0x66, 0x00, 0x55, 0x55,
+  0x55, 0x00, 0x44, 0x44, 0x44, 0x00, 0x33, 0x33, 0x33, 0x00, 0x22, 0x22, 0x22, 0x00, 0x11, 0x11,
+  0x11, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+inline display_t getPixel(unsigned int x, unsigned int y)
+{
+  if (x>=LCD_W || y>=LCD_H)
+    return 0;
+  display_t * p = &displayBuf[y / 2 * LCD_W + x];
+  return (y & 1) ? (*p >> 4) : (*p & 0x0F);
+}
+
+const char *writeScreenshot()
+{
+  FIL bmpFile;
+  UINT written;
+  char filename[48]; // /SCREENSHOTS/screenshot-2013-01-01-12-35-40.bmp
+  DIR folder;
+
+  // check and create folder here
+  strcpy_P(filename, SCREENSHOTS_PATH);
+  FRESULT result = f_opendir(&folder, filename);
+  if (result != FR_OK) {
+    if (result == FR_NO_PATH)
+      result = f_mkdir(filename);
+    if (result != FR_OK)
+      return SDCARD_ERROR(result);
+  }
+
+  char *tmp = strAppend(&filename[sizeof(SCREENSHOTS_PATH)-1], "/screenshot");
+  tmp = strAppendDate(tmp, true);
+  strcpy(tmp, BITMAPS_EXT);
+
+  result = f_open(&bmpFile, filename, FA_CREATE_ALWAYS | FA_WRITE);
+  if (result != FR_OK) {
+    return SDCARD_ERROR(result);
+  }
+
+  result = f_write(&bmpFile, bmpHeader, sizeof(bmpHeader), &written);
+  if (result != FR_OK || written != sizeof(bmpHeader)) {
+    f_close(&bmpFile);
+    return SDCARD_ERROR(result);
+  }
+
+  for (int y=LCD_H-1; y>=0; y-=1) {
+    for (int x=0; x<8*((LCD_W+7)/8); x+=2) {
+      uint8_t byte = getPixel(x+1, y) + (getPixel(x, y) << 4);
+      f_write(&bmpFile, &byte, 1, &written);
+      if (result != FR_OK || written != 1) {
+        f_close(&bmpFile);
+        return SDCARD_ERROR(result);
+      }
+    }
+  }
+
+  f_close(&bmpFile);
+
+  return NULL;
 }

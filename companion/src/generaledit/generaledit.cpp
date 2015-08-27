@@ -21,7 +21,6 @@ GeneralEdit::GeneralEdit(QWidget * parent, RadioData & radioData, Firmware * fir
   this->setWindowIcon(CompanionIcon("open.png"));
 
   QString firmware_id = g.profile[g.id()].fwType();
-  ui->tabWidget->setCurrentIndex( g.generalEditTab() );
   QString name=g.profile[g.id()].name();
   if (name.isEmpty()) {
     ui->calstore_PB->setDisabled(true);
@@ -43,12 +42,19 @@ GeneralEdit::GeneralEdit(QWidget * parent, RadioData & radioData, Firmware * fir
     addTab(new CustomFunctionsPanel(this, NULL, generalSettings, firmware), tr("Global Functions"));
   }
   addTab(new TrainerPanel(this, generalSettings, firmware), tr("Trainer"));
-  addTab(new CalibrationPanel(this, generalSettings, firmware), tr("Calibration"));
+  addTab(new CalibrationPanel(this, generalSettings, firmware), tr("Hardware / Calibration"));
+
+  ui->tabWidget->setCurrentIndex( g.generalEditTab() );
 }
 
 GeneralEdit::~GeneralEdit()
 {
   delete ui;
+}
+
+void GeneralEdit::closeEvent(QCloseEvent *event)
+{
+  g.generalEditTab(ui->tabWidget->currentIndex());
 }
 
 void GeneralEdit::addTab(GenericPanel *panel, QString text)
@@ -70,7 +76,6 @@ void GeneralEdit::onTabModified()
 void GeneralEdit::on_tabWidget_currentChanged(int index)
 {
   panels[index]->update();
-  g.generalEditTab(index);
 }
 
 void GeneralEdit::on_calretrieve_PB_clicked()
@@ -93,7 +98,7 @@ void GeneralEdit::on_calretrieve_PB_clicked()
     QString HapticSet = g.profile[profile_id].haptic();
     QString SpeakerSet = g.profile[profile_id].speaker();
     QString CountrySet = g.profile[profile_id].countryCode();
-    
+
     if ((calib.length()==(NUM_STICKS+potsnum)*12) && (trainercalib.length()==16)) {
       QString Byte;
       int16_t byte16;
@@ -121,6 +126,10 @@ void GeneralEdit::on_calretrieve_PB_clicked()
       generalSettings.currentCalib=currentCalib;
       generalSettings.vBatCalib=vBatCalib;
       generalSettings.vBatWarn=vBatWarn;
+      if (GetCurrentFirmware()->getCapability(HasBatMeterRange)) {
+        generalSettings.vBatMin = (int8_t) g.profile[profile_id].vBatMin();
+        generalSettings.vBatMax = (int8_t) g.profile[profile_id].vBatMax();
+      }
       generalSettings.PPM_Multiplier=PPM_Multiplier;
     } else {
       QMessageBox::critical(this, tr("Warning"), tr("Wrong data in profile, radio calibration was not retrieved"));
@@ -197,7 +206,7 @@ void GeneralEdit::on_calstore_PB_clicked()
   else {
     QString calib=g.profile[profile_id].stickPotCalib();
     if (!(calib.isEmpty())) {
-      int ret = QMessageBox::question(this, "Companion", 
+      int ret = QMessageBox::question(this, "Companion",
                       tr("Do you want to store calibration in %1 profile<br>overwriting existing calibration?").arg(name) ,
                       QMessageBox::Yes | QMessageBox::No);
       if (ret == QMessageBox::No) {
@@ -219,6 +228,10 @@ void GeneralEdit::on_calstore_PB_clicked()
     g.profile[profile_id].vBatCalib( generalSettings.vBatCalib );
     g.profile[profile_id].currentCalib( generalSettings.currentCalib );
     g.profile[profile_id].vBatWarn( generalSettings.vBatWarn );
+    if (GetCurrentFirmware()->getCapability(HasBatMeterRange)) {
+      g.profile[profile_id].vBatMin( generalSettings.vBatMin );
+      g.profile[profile_id].vBatMax( generalSettings.vBatMax );
+    }
     g.profile[profile_id].ppmMultiplier( generalSettings.PPM_Multiplier );
     g.profile[profile_id].gsStickMode( generalSettings.stickMode );
     g.profile[profile_id].display( QString("%1%2%3").arg((generalSettings.optrexDisplay ? 1:0), 2, 16, QChar('0')).arg((uint8_t)generalSettings.contrast, 2, 16, QChar('0')).arg((uint8_t)generalSettings.backlightBright, 2, 16, QChar('0')) );

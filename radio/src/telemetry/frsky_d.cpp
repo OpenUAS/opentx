@@ -84,7 +84,7 @@ void parseTelemHubByte(uint8_t byte)
     byte = byte ^ 0x60;
     state = (TS_STATE)(state - TS_XOR);
   }
-  if (byte == 0x5d) {
+  else if (byte == 0x5d) {
     state = (TS_STATE)(state | TS_XOR);
     return;
   }
@@ -509,9 +509,9 @@ struct FrSkyDSensor {
 
 const FrSkyDSensor frskyDSensors[] = {
   { D_RSSI_ID, ZSTR_RSSI, UNIT_RAW, 0 },
-  { D_A1_ID, ZSTR_A1, UNIT_VOLTS, 0 },
-  { D_A2_ID, ZSTR_A2, UNIT_VOLTS, 0 },
-  { RPM_ID, ZSTR_RPM, UNIT_RAW, 0 },
+  { D_A1_ID, ZSTR_A1, UNIT_VOLTS, 1 },
+  { D_A2_ID, ZSTR_A2, UNIT_VOLTS, 1 },
+  { RPM_ID, ZSTR_RPM, UNIT_RPMS, 0 },
   { FUEL_ID, ZSTR_FUEL, UNIT_PERCENT, 0 },
   { TEMP1_ID, ZSTR_TEMP, UNIT_CELSIUS, 0 },
   { TEMP2_ID, ZSTR_TEMP, UNIT_CELSIUS, 0 },
@@ -521,7 +521,8 @@ const FrSkyDSensor frskyDSensors[] = {
   { ACCEL_Z_ID, ZSTR_ACCZ, UNIT_G, 3 },
   { VARIO_ID, ZSTR_VSPD, UNIT_METERS_PER_SECOND, 2 },
   { VFAS_ID, ZSTR_VFAS, UNIT_VOLTS, 2 },
-  { BARO_ALT_AP_ID, ZSTR_ALT, UNIT_METERS, 2 },
+  { BARO_ALT_AP_ID, ZSTR_ALT, UNIT_METERS, 1 },   // we map hi precision vario into PREC1!
+  { VOLTS_AP_ID, ZSTR_VFAS, UNIT_VOLTS, 2 },
   { GPS_SPEED_BP_ID, ZSTR_GSPD, UNIT_KTS, 0 },
   { GPS_COURS_BP_ID, ZSTR_HDG, UNIT_DEGREE, 0 },
   { VOLTS_ID, ZSTR_CELLS, UNIT_CELLS, 2 },
@@ -555,7 +556,7 @@ void processHubPacket(uint8_t id, int16_t value)
     return;
   }
 
-  if (id == GPS_LAT_BP_ID || id == GPS_LONG_BP_ID || id == GPS_ALT_BP_ID || id == BARO_ALT_BP_ID || id == VOLTS_BP_ID) {
+  if (id == GPS_LAT_BP_ID || id == GPS_LONG_BP_ID || id == BARO_ALT_BP_ID || id == VOLTS_BP_ID) {
     lastId = id;
     lastValue = value;
     return;
@@ -590,8 +591,22 @@ void processHubPacket(uint8_t id, int16_t value)
   }
   else if (id == BARO_ALT_AP_ID) {
     if (lastId == BARO_ALT_BP_ID) {
-      data += lastValue * 100;
+      if (data > 9 || frskyData.varioHighPrecision) {
+        frskyData.varioHighPrecision = true;
+        data /= 10;    // map hi precision vario into low precision. Altitude is stored in 0.1m anyways
+      }
+      data = (int16_t)lastValue * 10 + (((int16_t)lastValue < 0) ? -data : data);
       unit = UNIT_METERS;
+      precision = 1;
+    }
+    else {
+      return;
+    }
+  }
+  else if (id == VOLTS_AP_ID) {
+    if (lastId == VOLTS_BP_ID) {
+      data = ((lastValue * 100 + value * 10) * 210) / 110;
+      unit = UNIT_VOLTS;
       precision = 2;
     }
     else {
@@ -600,6 +615,8 @@ void processHubPacket(uint8_t id, int16_t value)
   }
   else if (id == VOLTS_ID) {
     unit = UNIT_CELLS;
+    uint32_t cellData = (uint32_t)data;
+    data = ((cellData & 0x00F0) << 12) + (((((cellData & 0xFF00) >> 8) + ((cellData & 0x000F) << 8))) / 5);
   }
   else if (id == GPS_DAY_MONTH_ID) {
     id = GPS_HOUR_MIN_ID;
@@ -623,6 +640,20 @@ void processHubPacket(uint8_t id, int16_t value)
       precision = sensor->prec;
     }
   }
+  if (id == RPM_ID) {
+    data = data * 60;
+  }
+  else if (id == VFAS_ID) {
+    if (data >= VFAS_D_HIPREC_OFFSET) {
+      // incoming value has a resolution of 0.01V and added offset of VFAS_D_HIPREC_OFFSET
+      data -= VFAS_D_HIPREC_OFFSET;
+    }
+    else {
+      // incoming value has a resolution of 0.1V
+      data *= 10;
+    }
+  }
+  
   setTelemetryValue(TELEM_PROTO_FRSKY_D, id, 0, data, unit, precision);
 }
 
@@ -636,17 +667,30 @@ void frskyDSetDefault(int index, uint16_t id)
   const FrSkyDSensor * sensor = getFrSkyDSensor(id);
   if (sensor) {
     TelemetryUnit unit = sensor->unit;
-    if (unit == UNIT_CELLS)
-      unit = UNIT_VOLTS;
     uint8_t prec = min<uint8_t>(2, sensor->prec);
     telemetrySensor.init(sensor->name, unit, prec);
-    if (id >= D_A1_ID && id <= D_A2_ID) {
-      telemetrySensor.prec = 1;
-      telemetrySensor.custom.ratio = 132;
-      telemetrySensor.inputFlags = TELEM_INPUT_FLAGS_FILTERING;
+    if (id == D_RSSI_ID) {
+      telemetrySensor.filter = 1;
+      telemetrySensor.logs = true;
     }
-    else if (id == D_RSSI_ID) {
-      telemetrySensor.inputFlags = TELEM_INPUT_FLAGS_FILTERING;
+    else if (id >= D_A1_ID && id <= D_A2_ID) {
+      telemetrySensor.custom.ratio = 132;
+      telemetrySensor.filter = 1;
+    }
+    else if (id == CURRENT_ID) {
+      telemetrySensor.onlyPositive = 1;
+    }
+    else if (id == BARO_ALT_AP_ID) {
+      telemetrySensor.autoOffset = 1;
+    }
+    if (unit == UNIT_RPMS) {
+      telemetrySensor.custom.ratio = 1;
+      telemetrySensor.custom.offset = 1;
+    }
+    else if (unit == UNIT_METERS) {
+      if (IS_IMPERIAL_ENABLE()) {
+        telemetrySensor.unit = UNIT_FEET;
+      }
     }
   }
   else {

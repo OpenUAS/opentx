@@ -1,6 +1,6 @@
 /*
  * Author - Kjell Kernen
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -20,7 +20,7 @@ AppData g;
 // ** CompStoreObj class********************
 void CompStoreObj::clear (const QString tag1, const QString tag2, const QString tag3)
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (tag2.isEmpty())
     {
         settings.remove(tag1);
@@ -43,7 +43,7 @@ void CompStoreObj::clear (const QString tag1, const QString tag2, const QString 
 
 void CompStoreObj::store(const QByteArray newArray, QByteArray &array, const QString tag, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -56,7 +56,7 @@ void CompStoreObj::store(const QByteArray newArray, QByteArray &array, const QSt
 
 void CompStoreObj::store(const QStringList newSList, QStringList &stringList, const QString tag, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -69,7 +69,7 @@ void CompStoreObj::store(const QStringList newSList, QStringList &stringList, co
 
 void CompStoreObj::store(const QString newString, QString &string, const QString tag, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -82,7 +82,7 @@ void CompStoreObj::store(const QString newString, QString &string, const QString
 
 void CompStoreObj::store(const bool newTruth, bool &truth, const QString tag, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -95,7 +95,7 @@ void CompStoreObj::store(const bool newTruth, bool &truth, const QString tag, co
 
 void CompStoreObj::store(const int newNumber, int &number, const QString tag, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -109,7 +109,7 @@ void CompStoreObj::store(const int newNumber, int &number, const QString tag, co
 // Retrieval functions
 void CompStoreObj::retrieve( QByteArray &array, const QString tag, const QString def, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -121,7 +121,7 @@ void CompStoreObj::retrieve( QByteArray &array, const QString tag, const QString
 
 void CompStoreObj::retrieve( QStringList &stringList, const QString tag, const QString def, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -133,7 +133,7 @@ void CompStoreObj::retrieve( QStringList &stringList, const QString tag, const Q
 
 void CompStoreObj::retrieve( QString &string, const QString tag, const QString def, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -145,7 +145,7 @@ void CompStoreObj::retrieve( QString &string, const QString tag, const QString d
 
 void CompStoreObj::retrieve( bool &truth, const QString tag, const bool def, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -157,7 +157,7 @@ void CompStoreObj::retrieve( bool &truth, const QString tag, const bool def, con
 
 void CompStoreObj::retrieve( int &number, const QString tag, const int def, const QString group1, const QString group2 )
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     if (!group1.isEmpty()) settings.beginGroup(group1);
     if (!group2.isEmpty()) settings.beginGroup(group2);
 
@@ -241,7 +241,7 @@ JStickData::JStickData()
 void JStickData::remove()
 {
     // Remove all JStickData values from settings file
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     settings.beginGroup( "JsCalibration" );
     settings.remove( QString( "stick%1_axe").arg(index) );
     settings.remove( QString( "stick%1_min").arg(index) );
@@ -256,7 +256,7 @@ void JStickData::remove()
 
 bool JStickData::existsOnDisk()
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     settings.beginGroup("JsCalibration");
     int axe = settings.value( QString("stick%1_axe").arg(index), -1 ).toInt();
     settings.endGroup();
@@ -295,8 +295,11 @@ QString Profile::fwName()        const { return _fwName;        }
 QString Profile::fwType()        const { return _fwType;        }
 QString Profile::name()          const { return _name;          }
 QString Profile::sdPath()        const { return _sdPath;        }
+int     Profile::volumeGain()    const { return _volumeGain;    }
+QString Profile::pBackupDir()    const { return _pBackupDir;    }
 QString Profile::splashFile()    const { return _splashFile;    }
 bool    Profile::burnFirmware()  const { return _burnFirmware;  }
+bool    Profile::penableBackup() const { return _penableBackup; }
 bool    Profile::renameFwFiles() const { return _renameFwFiles; }
 int     Profile::channelOrder()  const { return _channelOrder;  }
 int     Profile::defaultMode()   const { return _defaultMode;   }
@@ -314,15 +317,20 @@ int     Profile::gsStickMode()   const { return _gsStickMode;   }
 int     Profile::ppmMultiplier() const { return _ppmMultiplier; }
 int     Profile::vBatCalib()     const { return _vBatCalib;     }
 int     Profile::vBatWarn()      const { return _vBatWarn;      }
+int     Profile::vBatMin()       const { return _vBatMin;       }
+int     Profile::vBatMax()       const { return _vBatMax;       }
 
 // Set declarations
 void Profile::name          (const QString x) { store(x, _name,          "Name"                  ,"Profiles", QString("profile%1").arg(index));}
 void Profile::fwName        (const QString x) { store(x, _fwName,        "fwName"                ,"Profiles", QString("profile%1").arg(index));}
 void Profile::fwType        (const QString x) { store(x, _fwType,        "fwType"                ,"Profiles", QString("profile%1").arg(index));}
 void Profile::sdPath        (const QString x) { store(x, _sdPath,        "sdPath"                ,"Profiles", QString("profile%1").arg(index));}
+void Profile::volumeGain    (const int     x) { store(x, _volumeGain,    "volumeGain"            ,"Profiles", QString("profile%1").arg(index));}
+void Profile::pBackupDir    (const QString x) { store(x, _pBackupDir,    "pBackupDir"            ,"Profiles", QString("profile%1").arg(index));}
 void Profile::splashFile    (const QString x) { store(x, _splashFile,    "SplashFileName"        ,"Profiles", QString("profile%1").arg(index));}
 void Profile::burnFirmware  (const bool    x) { store(x, _burnFirmware,  "burnFirmware"          ,"Profiles", QString("profile%1").arg(index));}
 void Profile::renameFwFiles (const bool    x) { store(x, _renameFwFiles, "rename_firmware_files" ,"Profiles", QString("profile%1").arg(index));}
+void Profile::penableBackup (const bool    x) { store(x, _penableBackup, "penableBackup"         ,"Profiles", QString("profile%1").arg(index));}
 void Profile::channelOrder  (const int     x) { store(x, _channelOrder,  "default_channel_order" ,"Profiles", QString("profile%1").arg(index));}
 void Profile::defaultMode   (const int     x) { store(x, _defaultMode,   "default_mode"          ,"Profiles", QString("profile%1").arg(index));}
 
@@ -339,6 +347,8 @@ void Profile::gsStickMode   (const int     x) { store(x, _gsStickMode,   "GSStic
 void Profile::ppmMultiplier (const int     x) { store(x, _ppmMultiplier, "PPM_Multiplier"        ,"Profiles", QString("profile%1").arg(index));}
 void Profile::vBatCalib     (const int     x) { store(x, _vBatCalib,     "VbatCalib"             ,"Profiles", QString("profile%1").arg(index));}
 void Profile::vBatWarn      (const int     x) { store(x, _vBatWarn,      "vBatWarn"              ,"Profiles", QString("profile%1").arg(index));}
+void Profile::vBatMin       (const int     x) { store(x, _vBatMin,       "VbatMin"               ,"Profiles", QString("profile%1").arg(index));}
+void Profile::vBatMax       (const int     x) { store(x, _vBatMax,       "VbatMax"               ,"Profiles", QString("profile%1").arg(index));}
 
 // Constructor
 Profile::Profile()
@@ -346,16 +356,19 @@ Profile::Profile()
     index = -1;
 }
 
-// The default copy operator can not be used since the index variable would be destroyed 
+// The default copy operator can not be used since the index variable would be destroyed
 Profile& Profile::operator=(const Profile& rhs)
 {
     name         ( rhs.name()          );
     fwName       ( rhs.fwName()        );
     fwType       ( rhs.fwType()        );
     sdPath       ( rhs.sdPath()        );
+    volumeGain   ( rhs.volumeGain()    );
+    pBackupDir   ( rhs.pBackupDir()    );
     splashFile   ( rhs.splashFile()    );
     burnFirmware ( rhs.burnFirmware()  );
     renameFwFiles( rhs.renameFwFiles() );
+    penableBackup( rhs.penableBackup() );
     channelOrder ( rhs.channelOrder()  );
     defaultMode  ( rhs.defaultMode()   );
     beeper       ( rhs.beeper()        );
@@ -370,6 +383,8 @@ Profile& Profile::operator=(const Profile& rhs)
     ppmMultiplier( rhs.ppmMultiplier() );
     vBatCalib    ( rhs.vBatCalib()     );
     vBatWarn     ( rhs.vBatWarn()      );
+    vBatMin      ( rhs.vBatMin()       );
+    vBatMax      ( rhs.vBatMax()       );
 
     return *this;
 }
@@ -377,7 +392,7 @@ Profile& Profile::operator=(const Profile& rhs)
 void Profile::remove()
 {
     // Remove all profile values from settings file
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     settings.beginGroup("Profiles");
     settings.remove(QString("profile%1").arg(index));
     settings.endGroup();
@@ -388,7 +403,7 @@ void Profile::remove()
 
 bool Profile::existsOnDisk()
 {
-    QSettings settings(PRODUCT, COMPANY);
+    QSettings settings(COMPANY, PRODUCT);
     settings.beginGroup("Profiles");
     settings.beginGroup(QString("profile%1").arg(index));
     QStringList keyList = settings.allKeys();
@@ -414,6 +429,8 @@ void Profile::initFwVariables()
     _ppmMultiplier = 0;
     _vBatCalib =     0;
     _vBatWarn =      0;
+    _vBatMin =       0;
+    _vBatMax =       0;
 }
 
 void Profile::init(int newIndex)
@@ -424,9 +441,12 @@ void Profile::init(int newIndex)
     _fwType =        "";
     _name =          "";
     _sdPath =        "";
+    _volumeGain =    10;
+    _pBackupDir =    "";
     _splashFile =    "";
     _burnFirmware =  false;
     _renameFwFiles = false;
+    _penableBackup = false;
     _channelOrder =  0;
     _defaultMode =   1;
 
@@ -446,8 +466,11 @@ void Profile::flush()
     getset( _fwType,        "fwType"                ,""     ,"Profiles", QString("profile%1").arg(index));
     getset( _name,          "Name"                  ,""     ,"Profiles", QString("profile%1").arg(index));
     getset( _sdPath,        "sdPath"                ,""     ,"Profiles", QString("profile%1").arg(index));
+    getset( _volumeGain,    "volumeGain"            ,10     ,"Profiles", QString("profile%1").arg(index));
+    getset( _pBackupDir,    "pBackupDir"            ,""     ,"Profiles", QString("profile%1").arg(index));
     getset( _splashFile,    "SplashFileName"        ,""     ,"Profiles", QString("profile%1").arg(index));
     getset( _burnFirmware,  "burnFirmware"          ,false  ,"Profiles", QString("profile%1").arg(index));
+    getset( _penableBackup, "penableBackup"         ,false  ,"Profiles", QString("profile%1").arg(index));
     getset( _renameFwFiles, "rename_firmware_files" ,false  ,"Profiles", QString("profile%1").arg(index));
     getset( _channelOrder,  "default_channel_order" ,0      ,"Profiles", QString("profile%1").arg(index));
     getset( _defaultMode,   "default_mode"          ,1      ,"Profiles", QString("profile%1").arg(index));
@@ -465,6 +488,8 @@ void Profile::flush()
     getset( _ppmMultiplier, "PPM_Multiplier"        ,0      ,"Profiles", QString("profile%1").arg(index));
     getset( _vBatCalib,     "VbatCalib"             ,0      ,"Profiles", QString("profile%1").arg(index));
     getset( _vBatWarn,      "vBatWarn"              ,0      ,"Profiles", QString("profile%1").arg(index));
+    getset( _vBatMin,       "VbatMin"               ,0      ,"Profiles", QString("profile%1").arg(index));
+    getset( _vBatMax,       "VbatMax"               ,0      ,"Profiles", QString("profile%1").arg(index));
 }
 
 
@@ -487,6 +512,7 @@ QString AppData::mcu()             { return _mcu;             }
 QString AppData::programmer()      { return _programmer;      }
 QString AppData::sambaLocation()   { return _sambaLocation;   }
 QString AppData::sambaPort()       { return _sambaPort;       }
+QString AppData::lastSimulator()   { return _lastSimulator;   }
 
 QString AppData::backupDir()       { return _backupDir;       }
 QString AppData::gePath()          { return _gePath;          }
@@ -535,6 +561,7 @@ void AppData::mcu             (const QString     x) { store(x, _mcu,            
 void AppData::programmer      (const QString     x) { store(x, _programmer,      "programmer"              );}
 void AppData::sambaLocation   (const QString     x) { store(x, _sambaLocation,   "samba_location"          );}
 void AppData::sambaPort       (const QString     x) { store(x, _sambaPort,       "samba_port"              );}
+void AppData::lastSimulator   (const QString     x) { store(x, _lastSimulator,   "last_simulator"          );}
 
 void AppData::backupDir       (const QString     x) { store(x, _backupDir,       "backupPath"              );}
 void AppData::gePath          (const QString     x) { store(x, _gePath,          "gePath"                  );}
@@ -577,11 +604,49 @@ AppData::AppData()
     for (int i=0; i<MAX_JOYSTICKS; i++)
         joystick[i].init( i );
 
-    // Import settings from companion9x, but only do it one time.
-    QSettings c9x_settings("companion9x", "companion9x");
-    QSettings settings(PRODUCT, COMPANY);
-    if (profile[0].name().isEmpty() )
+    // Copy existing 2.0.16 settings if present
+    QSettings settings(COMPANY, PRODUCT);
+    if (profile[0].name().isEmpty())
     {
+        QSettings settings20("OpenTX", "Companion 2.0");
+
+        QStringList keys = settings20.allKeys();
+        for (QStringList::iterator i=keys.begin(); i!=keys.end(); i++)
+        {
+            if (settings20.value(*i) != QString("") && settings20.value(*i) != QString("Start Menu Folder"))
+            {
+                settings.setValue(*i, settings20.value(*i));
+            }
+        }
+
+        //Reload profiles
+        for (int i=0; i<MAX_PROFILES; i++)
+            profile[i].init( i );
+    }
+
+    // Else copy existing <2.0.16 settings if present
+    if (profile[0].name().isEmpty())
+    {
+        QSettings pre2016settings("OpenTX", "OpenTX Companion");
+
+        QStringList keys = pre2016settings.allKeys();
+        for (QStringList::iterator i=keys.begin(); i!=keys.end(); i++)
+        {
+            if (pre2016settings.value(*i) != QString("") && pre2016settings.value(*i) != QString("Start Menu Folder"))
+            {
+                settings.setValue(*i, pre2016settings.value(*i));
+            }
+        }
+
+        //Reload profiles
+        for (int i=0; i<MAX_PROFILES; i++)
+            profile[i].init( i );
+    }
+
+    // Else import settings from companion9x if present
+    if (profile[0].name().isEmpty())
+    {
+        QSettings c9x_settings("companion9x", "companion9x");
         // Copy all settings from companion9x to companion
         QStringList keys = c9x_settings.allKeys();
         for (QStringList::iterator i=keys.begin(); i!=keys.end(); i++)
@@ -625,7 +690,7 @@ AppData::AppData()
         settings.remove("patchImage");
         settings.remove("rename_firmware_files");
         settings.remove("sdPath");
-        settings.remove("SplashFileName"); 
+        settings.remove("SplashFileName");
         settings.remove("startup_check_companion9x");
         settings.remove("wizardEnable");
 
@@ -640,8 +705,8 @@ AppData::AppData()
     settings.remove("compilation-server");
 
     // Load and store all variables. Use default values if setting values are missing
-    QString _tempString;                                         // Do not touch. Do not change the settings version before a new verson update!
-    getset( _tempString,      "settings_version"        ,"20" ); // This is a version marker. Will be used to upgrade the settings later on.
+    QString _tempString;                                          // Do not touch. Do not change the settings version before a new verson update!
+    getset( _tempString,      "settings_version"        ,"210" ); // This is a version marker. Will be used to upgrade the settings later on.
 
     getset( _recentFiles,     "recentFileList"          ,"" );
     getset( _mainWinGeo,      "mainWindowGeometry"      ,"" );
@@ -659,6 +724,7 @@ AppData::AppData()
     getset( _programmer,      "programmer"              ,"usbasp" );
     getset( _sambaLocation,   "samba_location"          ,"" );
     getset( _sambaPort,       "samba_port"              ,"\\USBserial\\COM23" );
+    getset( _lastSimulator,   "last_simulator"          ,"" );
 
     getset( _backupDir,       "backupPath"              ,"" );
     getset( _gePath,          "gePath"                  ,"" );
@@ -673,6 +739,11 @@ AppData::AppData()
     getset( _outputDisplayDetails,  "outputDisplayDetails"     ,false );
     getset( _enableBackup,    "backupEnable"            ,false );
     getset( _backupOnFlash,   "backupOnFlash"           ,true  );
+    getset( _checkHardwareCompatibility,   "checkHardwareCompatibility"           ,true  );
+
+    getset( _useCompanionNightlyBuilds,   "useCompanionNightlyBuilds"           ,false  );
+    getset( _useFirmwareNightlyBuilds,   "useFirmwareNightlyBuilds"           ,false  );
+
     getset( _jsSupport,       "js_support"              ,false );
     getset( _maximized,       "maximized"               ,false );
     getset( _showSplash,      "show_splash"             ,true  );

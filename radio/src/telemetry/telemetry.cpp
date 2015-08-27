@@ -1,6 +1,6 @@
 #include "../opentx.h"
 
-TelemetryItem telemetryItems[TELEM_VALUES_MAX];
+TelemetryItem telemetryItems[MAX_SENSORS];
 
 void TelemetryItem::gpsReceived()
 {
@@ -14,23 +14,32 @@ void TelemetryItem::gpsReceived()
   lastReceived = now();
 }
 
-void TelemetryItem::setValue(const TelemetrySensor & sensor, int32_t newVal, uint32_t unit, uint32_t prec)
+void TelemetryItem::setValue(const TelemetrySensor & sensor, int32_t val, uint32_t unit, uint32_t prec)
 {
+  int32_t newVal = val;
+
   if (unit == UNIT_CELLS) {
     uint32_t data = uint32_t(newVal);
-    uint8_t cellIndex = data & 0xF;
-    uint8_t count = (data & 0xF0) >> 4;
-    if (count != cells.count) {
+    uint8_t cellsCount = (data >> 24);
+    uint8_t cellIndex = ((data >> 16) & 0x0F);
+    uint16_t cellValue = (data & 0xFFFF);
+    if (cellsCount == 0) {
+      cellsCount = (cellIndex >= cells.count ? cellIndex + 1 : cells.count);
+      if (cellsCount != cells.count) {
+        clear();
+        cells.count = cellsCount;
+        // we skip this round as we are not sure we received all cells values
+        return;
+      }
+    }
+    else if (cellsCount != cells.count) {
       clear();
-      cells.count = count;
+      cells.count = cellsCount;
     }
-    cells.values[cellIndex].set(((data & 0x000FFF00) >>  8) / 5);
-    if (cellIndex+1 < cells.count) {
-      cells.values[cellIndex+1].set(((data & 0xFFF00000) >> 20) / 5);
-    }
-    if (cellIndex+2 >= cells.count) {
+    cells.values[cellIndex].set(cellValue);
+    if (cellIndex+1 == cells.count) {
       newVal = 0;
-      for (int i=0; i<count; i++) {
+      for (int i=0; i<cellsCount; i++) {
         if (cells.values[i].state) {
           newVal += cells.values[i].value;
         }
@@ -52,13 +61,41 @@ void TelemetryItem::setValue(const TelemetrySensor & sensor, int32_t newVal, uin
       datetime.year = (uint16_t) ((data & 0xff000000) >> 24);
       datetime.month = (uint8_t) ((data & 0x00ff0000) >> 16);
       datetime.day = (uint8_t) ((data & 0x0000ff00) >> 8);
-      datetime.datestate = 1;
+      if (datetime.year != 0) {
+        datetime.datestate = 1;
+      }
+#if defined(RTCLOCK)
+      if (g_eeGeneral.adjustRTC && (datetime.datestate == 1)) {
+        struct gtm t;
+        gettime(&t);
+        t.tm_year = datetime.year+4;
+        t.tm_mon = datetime.month-1;
+        t.tm_mday = datetime.day;
+        rtcSetTime(&t);
+      }
+#endif
     }
     else {
       datetime.hour = ((uint8_t) ((data & 0xff000000) >> 24) + g_eeGeneral.timezone + 24) % 24;
       datetime.min = (uint8_t) ((data & 0x00ff0000) >> 16);
       datetime.sec = (uint16_t) ((data & 0x0000ff00) >> 8);
-      datetime.timestate = 1;
+      if (datetime.datestate == 1) {
+        datetime.timestate = 1;
+      }
+#if defined(RTCLOCK)
+      if (g_eeGeneral.adjustRTC && datetime.datestate == 1) {
+        struct gtm t;
+        gettime(&t);
+        if (abs((t.tm_hour-datetime.hour)*3600 + (t.tm_min-datetime.min)*60 + (t.tm_sec-datetime.sec)) > 20) {
+          // we adjust RTC only if difference is > 20 seconds
+          t.tm_hour = datetime.hour;
+          t.tm_min = datetime.min;
+          t.tm_sec = datetime.sec;
+          g_rtcTime = gmktime(&t); // update local timestamp and get wday calculated
+          rtcSetTime(&t);
+        }
+      }
+#endif
     }
     if (datetime.year == 0) {
       return;
@@ -141,30 +178,35 @@ void TelemetryItem::setValue(const TelemetrySensor & sensor, int32_t newVal, uin
     datetime.timestate = 1;
     newVal = 0;
   }
+  else if (unit == UNIT_RPMS) {
+    if (sensor.custom.ratio != 0) {
+      newVal = (newVal * sensor.custom.offset) / sensor.custom.ratio;
+    }
+  }
   else {
     newVal = sensor.getValue(newVal, unit, prec);
-    if (sensor.inputFlags == TELEM_INPUT_FLAGS_AUTO_OFFSET) {
+    if (sensor.autoOffset) {
       if (!isAvailable()) {
-        offsetAuto = -newVal;
+        std.offsetAuto = -newVal;
       }
-      newVal += offsetAuto;
+      newVal += std.offsetAuto;
     }
-    else if (sensor.inputFlags == TELEM_INPUT_FLAGS_FILTERING) {
+    else if (sensor.filter) {
       if (!isAvailable()) {
         for (int i=0; i<TELEMETRY_AVERAGE_COUNT; i++) {
-          filterValues[i] = newVal;
+          std.filterValues[i] = newVal;
         }
       }
       else {
         // calculate the average from values[] and value
         // also shift readings in values [] array
-        unsigned int sum = filterValues[0];
+        unsigned int sum = std.filterValues[0];
         for (int i=0; i<TELEMETRY_AVERAGE_COUNT-1; i++) {
-          int32_t tmp = filterValues[i+1];
-          filterValues[i] = tmp;
+          int32_t tmp = std.filterValues[i+1];
+          std.filterValues[i] = tmp;
           sum += tmp;
         }
-        filterValues[TELEMETRY_AVERAGE_COUNT-1] = newVal;
+        std.filterValues[TELEMETRY_AVERAGE_COUNT-1] = newVal;
         sum += newVal;
         newVal = sum/(TELEMETRY_AVERAGE_COUNT+1);
       }
@@ -181,7 +223,16 @@ void TelemetryItem::setValue(const TelemetrySensor & sensor, int32_t newVal, uin
   else if (newVal > valueMax) {
     valueMax = newVal;
     if (sensor.unit == UNIT_VOLTS) {
-      valueMin = newVal;
+      valueMin = newVal; // the batt was changed
+    }
+  }
+
+  for (int i=0; i<MAX_SENSORS; i++) {
+    TelemetrySensor & it = g_model.telemetrySensors[i];
+    if (it.type == TELEM_TYPE_CALCULATED && it.formula == TELEM_FORMULA_TOTALIZE && &g_model.telemetrySensors[it.consumption.source-1] == &sensor) {
+      TelemetryItem & item = telemetryItems[i];
+      int32_t increment = it.getValue(val, unit, prec);
+      item.setValue(it, item.value+increment, it.unit, it.prec);
     }
   }
 
@@ -224,6 +275,7 @@ void TelemetryItem::per10ms(const TelemetrySensor & sensor)
           currentItem.consumption.prescale -= 3600;
           setValue(sensor, value+1, sensor.unit, sensor.prec);
         }
+        lastReceived = now();
       }
       break;
 
@@ -401,40 +453,6 @@ void TelemetryItem::eval(const TelemetrySensor & sensor)
   }
 }
 
-int getTelemetryIndex(TelemetryProtocol protocol, uint16_t id, uint8_t instance)
-{
-  int available = -1;
-
-  for (int index=0; index<TELEM_VALUES_MAX; index++) {
-    TelemetrySensor & telemetrySensor = g_model.telemetrySensors[index];
-    if (telemetrySensor.id == id && telemetrySensor.instance == instance) {
-      return index;
-    }
-    else if (available < 0 && telemetrySensor.id == 0) {
-      available = index;
-    }
-  }
-
-  if (available >= 0) {
-    switch (protocol) {
-#if defined(FRSKY_SPORT)
-      case TELEM_PROTO_FRSKY_SPORT:
-        frskySportSetDefault(available, id, instance);
-        break;
-#endif
-#if defined(FRSKY)
-      case TELEM_PROTO_FRSKY_D:
-        frskyDSetDefault(available, id);
-        break;
-#endif
-      default:
-        break;
-    }
-  }
-
-  return available;
-}
-
 void delTelemetryIndex(uint8_t index)
 {
   memclear(&g_model.telemetrySensors[index], sizeof(TelemetrySensor));
@@ -444,7 +462,7 @@ void delTelemetryIndex(uint8_t index)
 
 int availableTelemetryIndex()
 {
-  for (int index=0; index<TELEM_VALUES_MAX; index++) {
+  for (int index=0; index<MAX_SENSORS; index++) {
     TelemetrySensor & telemetrySensor = g_model.telemetrySensors[index];
     if (!telemetrySensor.isAvailable()) {
       return index;
@@ -453,25 +471,67 @@ int availableTelemetryIndex()
   return -1;
 }
 
+int lastUsedTelemetryIndex()
+{
+  for (int index=MAX_SENSORS-1; index>=0; index--) {
+    TelemetrySensor & telemetrySensor = g_model.telemetrySensors[index];
+    if (telemetrySensor.isAvailable()) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 void setTelemetryValue(TelemetryProtocol protocol, uint16_t id, uint8_t instance, int32_t value, uint32_t unit, uint32_t prec)
 {
-  int index = getTelemetryIndex(protocol, id, instance);
+  bool available = false;
 
+  for (int index=0; index<MAX_SENSORS; index++) {
+    TelemetrySensor & telemetrySensor = g_model.telemetrySensors[index];
+    if (telemetrySensor.type == TELEM_TYPE_CUSTOM && telemetrySensor.id == id && (telemetrySensor.instance == instance || g_model.ignoreSensorIds)) {
+      telemetryItems[index].setValue(telemetrySensor, value, unit, prec);
+      available = true;
+      // we continue search here, because more than one sensor can have the same id and instance
+    }
+  }
+
+  if (available) {
+    return;
+  }
+  
+  int index = availableTelemetryIndex();
   if (index >= 0) {
+    switch (protocol) {
+#if defined(FRSKY_SPORT)
+      case TELEM_PROTO_FRSKY_SPORT:
+        frskySportSetDefault(index, id, instance);
+        break;
+#endif
+#if defined(FRSKY)
+      case TELEM_PROTO_FRSKY_D:
+        frskyDSetDefault(index, id);
+        break;
+#endif
+      default:
+        return;
+    }
     telemetryItems[index].setValue(g_model.telemetrySensors[index], value, unit, prec);
   }
   else {
-    // TODO error too many sensors
+    POPUP_WARNING(STR_TELEMETRYFULL);
   }
 }
 
-void TelemetrySensor::init(const char *label, uint8_t unit, uint8_t prec)
+void TelemetrySensor::init(const char * label, uint8_t unit, uint8_t prec)
 {
   memclear(this->label, TELEM_LABEL_LEN);
   strncpy(this->label, label, TELEM_LABEL_LEN);
   this->unit = unit;
+  if (prec > 1 && (IS_DISTANCE_UNIT(unit) || IS_SPEED_UNIT(unit))) {
+    // 2 digits precision is not needed here
+    prec = 1;
+  }
   this->prec = prec;
-  // this->inputFlags = inputFlags;
 }
 
 void TelemetrySensor::init(uint16_t id)
@@ -494,20 +554,28 @@ int32_t convertTelemetryValue(int32_t value, uint8_t unit, uint8_t prec, uint8_t
   for (int i=prec; i<destPrec; i++)
     value *= 10;
 
-  if (unit == UNIT_METERS) {
-    if (destUnit == UNIT_FEET) {
+  if (unit == UNIT_METERS || unit == UNIT_METERS_PER_SECOND) {
+    if (destUnit == UNIT_FEET || destUnit == UNIT_FEET_PER_SECOND) {
       // m to ft *105/32
       value = (value * 105) / 32;
     }
   }
   else if (unit == UNIT_KTS) {
     if (destUnit == UNIT_KMH) {
-      // kts to km/h
+      // kts to km/h (1 knot = 1.85200 kilometers per hour)
       value = (value * 1852) / 1000;
     }
     else if (destUnit == UNIT_MPH) {
-      // kts to mph
-      value = (value * 23) / 20;
+      // kts to mph (1 knot = 1.15077945 miles per hour)
+      value = (value * 1151) / 1000;
+    }
+    else if (destUnit == UNIT_METERS_PER_SECOND) {
+      // kts to m/s (1 knot = 0.514444444 meters / second)
+      value = (value * 514) / 1000;
+    }
+    else if (destUnit == UNIT_FEET_PER_SECOND) {
+      // kts to f/s  (1 knot = 1.68780986 feet per second)
+      value = (value * 1688) / 1000;
     }
   }
   else if (unit == UNIT_CELSIUS) {
@@ -516,7 +584,12 @@ int32_t convertTelemetryValue(int32_t value, uint8_t unit, uint8_t prec, uint8_t
       value = 32 + (value*18)/10;
     }
   }
-
+  else if (unit == UNIT_MILLILITERS) {
+    if (destUnit == UNIT_FLOZ) {
+      value = (value * 100) / 2957;
+    }
+  }
+  
   for (int i=destPrec; i<prec; i++)
     value /= 10;
 
@@ -540,8 +613,38 @@ int32_t TelemetrySensor::getValue(int32_t value, uint8_t unit, uint8_t prec) con
 
   if (type == TELEM_TYPE_CUSTOM) {
     value += custom.offset;
+    if (value < 0 && onlyPositive) {
+      value = 0;
+    }
   }
 
   return value;
 }
 
+bool TelemetrySensor::isConfigurable()
+{
+  if (type == TELEM_TYPE_CALCULATED) {
+    if (formula >= TELEM_FORMULA_CELL) {
+      return false;
+    }
+  }
+  else {
+    if (unit >= UNIT_FIRST_VIRTUAL)  {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool TelemetrySensor::isPrecConfigurable()
+{
+  if (isConfigurable()) {
+    return true;
+  }
+  else if (unit == UNIT_CELLS) {
+    return true;
+  }
+  else {
+    return false;
+  }
+}

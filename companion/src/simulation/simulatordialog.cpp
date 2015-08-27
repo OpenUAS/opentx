@@ -9,33 +9,82 @@
 #define RESX        1024
 
 int SimulatorDialog::screenshotIdx = 0;
+SimulatorDialog * traceCallbackInstance = 0;
 
-SimulatorDialog::SimulatorDialog(QWidget * parent, unsigned int flags):
+void traceCb(const char * text)
+{
+  // divert C callback into simulator instance
+  if (traceCallbackInstance) {
+    traceCallbackInstance->traceCallback(text);
+  }
+}
+
+void SimulatorDialog::traceCallback(const char * text)
+{
+  // this function is called from other threads
+  traceMutex.lock();
+  // limit the size of list
+  if (traceList.size() < 1000) {
+    traceList.append(QString(text));
+  }
+  traceMutex.unlock();
+}
+
+void SimulatorDialog::updateDebugOutput()
+{
+  traceMutex.lock();
+  while (!traceList.isEmpty()) {
+    QString text = traceList.takeFirst();
+    traceBuffer.append(text);
+    // limit the size of traceBuffer
+    if (traceBuffer.size() > 10*1024) {
+      traceBuffer.remove(0, 1*1024);
+    }
+    if (DebugOut) {
+      DebugOut->traceCallback(QString(text));
+    }
+  }
+  traceMutex.unlock();
+}
+
+SimulatorDialog::SimulatorDialog(QWidget * parent, SimulatorInterface *simulator, unsigned int flags):
   QDialog(parent),
   flags(flags),
-  dialP_4(NULL),
   timer(NULL),
   lightOn(false),
-  simulator(NULL),
+  simulator(simulator),
   lastPhase(-1),
   beepVal(0),
+  TelemetrySimu(0),
+  TrainerSimu(0),
+  DebugOut(0),
   buttonPressed(0),
   trimPressed (TRIM_NONE),
   middleButtonPressed(false)
 {
+  //shorcut for telemetry simulator
+  // new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_T), this, SLOT(openTelemetrySimulator()));
+  new QShortcut(QKeySequence(Qt::Key_F4), this, SLOT(openTelemetrySimulator()));
+  new QShortcut(QKeySequence(Qt::Key_F5), this, SLOT(openTrainerSimulator()));
+  new QShortcut(QKeySequence(Qt::Key_F6), this, SLOT(openDebugOutput()));
+  traceCallbackInstance = this;
 }
 
 uint32_t SimulatorDialog9X::switchstatus = 0;
 
-SimulatorDialog9X::SimulatorDialog9X(QWidget * parent, unsigned int flags):
-  SimulatorDialog(parent, flags),
+SimulatorDialog9X::SimulatorDialog9X(QWidget * parent, SimulatorInterface *simulator, unsigned int flags):
+  SimulatorDialog(parent, simulator, flags),
   ui(new Ui::SimulatorDialog9X),
   beepShow(0)
 {
   lcdWidth = 128;
+  lcdHeight = 64;
   lcdDepth = 1;
 
   initUi<Ui::SimulatorDialog9X>(ui);
+
+  // install simulator TRACE hook
+  simulator->installTraceHook(traceCb);
 
   backLight = g.backLight();
   if (backLight > 4) backLight = 0;
@@ -69,10 +118,10 @@ SimulatorDialog9X::SimulatorDialog9X(QWidget * parent, unsigned int flags):
   ui->trimHL_R->setText(QString::fromUtf8(rightArrow));
   ui->trimVL_U->setText(QString::fromUtf8(upArrow));
   ui->trimVL_D->setText(QString::fromUtf8(downArrow));
-
-  connect(ui->dialP_1, SIGNAL(valueChanged(int)), this, SLOT(dialChanged()));
-  connect(ui->dialP_2, SIGNAL(valueChanged(int)), this, SLOT(dialChanged()));
-  connect(ui->dialP_3, SIGNAL(valueChanged(int)), this, SLOT(dialChanged()));
+  for (int i=0; i<pots.count(); i++) {
+    pots[i]->setProperty("index", i);
+    connect(pots[i], SIGNAL(valueChanged(int)), this, SLOT(dialChanged(int)));
+  }
   connect(ui->cursor, SIGNAL(buttonPressed(int)), this, SLOT(onButtonPressed(int)));
   connect(ui->menu, SIGNAL(buttonPressed(int)), this, SLOT(onButtonPressed(int)));
   connect(ui->trimHR_L, SIGNAL(pressed()), this, SLOT(onTrimPressed()));
@@ -101,22 +150,38 @@ SimulatorDialog9X::~SimulatorDialog9X()
 
 uint32_t SimulatorDialogTaranis::switchstatus = 0;
 
-SimulatorDialogTaranis::SimulatorDialogTaranis(QWidget * parent, unsigned int flags):
-  SimulatorDialog(parent, flags),
+SimulatorDialogTaranis::SimulatorDialogTaranis(QWidget * parent, SimulatorInterface *simulator, unsigned int flags):
+  SimulatorDialog(parent, simulator, flags),
   ui(new Ui::SimulatorDialogTaranis)
 {
   lcdWidth = 212;
+  lcdHeight = 64;
   lcdDepth = 4;
-
+  
   initUi<Ui::SimulatorDialogTaranis>(ui);
-  dialP_4 = ui->dialP_4;
+
+  // install simulator TRACE hook
+  simulator->installTraceHook(traceCb);
 
   ui->lcd->setBackgroundColor(47, 123, 227);
 
-  //restore switches
-  if (g.simuSW())
+  // restore switches
+  if (g.simuSW()) {
     restoreSwitches();
+  }
 
+  for (int i=0; i<pots.count(); i++) {
+    if (flags & (SIMULATOR_FLAGS_S1_MULTI << i)) {
+      pots[i]->setValue(-1024);
+      pots[i]->setSingleStep(2048/5);
+      pots[i]->setPageStep(2048/5);
+    }
+    else if (!(flags & (SIMULATOR_FLAGS_S1 << i))) {
+      pots[i]->hide();
+      potLabels[i]->hide();
+    }
+  }
+  
   ui->trimHR_L->setText(QString::fromUtf8(leftArrow));
   ui->trimHR_R->setText(QString::fromUtf8(rightArrow));
   ui->trimVR_U->setText(QString::fromUtf8(upArrow));
@@ -154,6 +219,7 @@ SimulatorDialogTaranis::~SimulatorDialogTaranis()
 
 SimulatorDialog::~SimulatorDialog()
 {
+  traceCallbackInstance = 0;
   delete timer;
   delete simulator;
 }
@@ -178,11 +244,10 @@ void SimulatorDialog::mouseReleaseEvent(QMouseEvent *event)
   }
 }
 
-void SimulatorDialog9X::dialChanged()
+void SimulatorDialog9X::dialChanged(int value)
 {
-  ui->dialP_1value->setText(QString("%1 %").arg((ui->dialP_1->value()*100)/1024));
-  ui->dialP_2value->setText(QString("%1 %").arg((ui->dialP_2->value()*100)/1024));
-  ui->dialP_3value->setText(QString("%1 %").arg((ui->dialP_3->value()*100)/1024));
+  int index = sender()->property("index").toInt();
+  potValues[index]->setText(QString("%1 %").arg((value*100)/1024));
 }
 
 void SimulatorDialog::wheelEvent (QWheelEvent *event)
@@ -215,6 +280,49 @@ void SimulatorDialog::onTrimReleased()
   trimPressed = TRIM_NONE;
 }
 
+void SimulatorDialog::openTelemetrySimulator()
+{
+  // allow only one instance
+  if (TelemetrySimu == 0) {
+    TelemetrySimu = new TelemetrySimulator(this, simulator);
+    TelemetrySimu->show();
+  }
+  else if (!TelemetrySimu->isVisible()) {
+    TelemetrySimu->show();
+  }
+}
+
+void SimulatorDialog::openTrainerSimulator()
+{
+  // allow only one instance
+  if (TrainerSimu == 0) {
+    TrainerSimu = new TrainerSimulator(this, simulator);
+    TrainerSimu->show();
+  }
+  else if (!TrainerSimu->isVisible()) {
+    TrainerSimu->show();
+  }
+}
+
+void SimulatorDialog::openDebugOutput()
+{
+  // allow only one instance, but install signal handler to catch dialog destruction just in case
+  if (DebugOut == 0) {
+    DebugOut = new DebugOutput(this);
+    QObject::connect(DebugOut, SIGNAL(destroyed()), this, SLOT(onDebugOutputClose()));
+    DebugOut->traceCallback(traceBuffer);
+    DebugOut->show();
+  }
+  else if (!DebugOut->isVisible()) {
+    DebugOut->show();
+  }
+}
+
+void SimulatorDialog::onDebugOutputClose()
+{
+  DebugOut = 0;
+}
+
 void SimulatorDialog::keyPressEvent (QKeyEvent *event)
 {
   switch (event->key()) {
@@ -233,7 +341,7 @@ void SimulatorDialog::keyPressEvent (QKeyEvent *event)
     case Qt::Key_Minus:
     case Qt::Key_Plus:
     case Qt::Key_PageDown:
-    case Qt::Key_Menu:    
+    case Qt::Key_PageUp:    
       buttonPressed = event->key();
       break;
   }
@@ -253,7 +361,7 @@ void SimulatorDialog::keyReleaseEvent(QKeyEvent * event)
     case Qt::Key_Plus:
     case Qt::Key_Minus:
     case Qt::Key_PageDown:
-    case Qt::Key_Menu:
+    case Qt::Key_PageUp:
       buttonPressed = 0;
       break;
   }
@@ -274,9 +382,11 @@ void SimulatorDialog::initUi(T * ui)
   lcd = ui->lcd;
   leftStick = ui->leftStick;
   rightStick = ui->rightStick;
-  dialP_1 = ui->dialP_1;
-  dialP_2 = ui->dialP_2;
-  dialP_3 = ui->dialP_3;
+  pots = findWidgets<QDial *>(this, "pot%1");
+  potLabels = findWidgets<QLabel *>(this, "potLabel%1");
+  potValues = findWidgets<QLabel *>(this, "potValue%1");
+  sliders = findWidgets<QSlider *>(this, "slider%1");
+
   trimHLeft = ui->trimHLeft;
   trimVLeft = ui->trimVLeft;
   trimHRight = ui->trimHRight;
@@ -339,8 +449,9 @@ void SimulatorDialog::initUi(T * ui)
   windowName = tr("Simulating Radio (%1)").arg(GetCurrentFirmware()->getName());
   setWindowTitle(windowName);
 
-  simulator = GetCurrentFirmware()->getSimulator();
-  lcd->setData(simulator->getLcd(), lcdWidth, 64, lcdDepth);
+  simulator->setSdPath(g.profile[g.id()].sdPath());
+  simulator->setVolumeGain(g.profile[g.id()].volumeGain());
+  lcd->setData(simulator->getLcd(), lcdWidth, lcdHeight, lcdDepth);
 
   if (flags & SIMULATOR_FLAGS_STICK_MODE_LEFT) {
     nodeLeft->setCenteringY(false);
@@ -353,7 +464,7 @@ void SimulatorDialog::initUi(T * ui)
 
   setTrims();
 
-  int outputs = std::min(32,GetCurrentFirmware()->getCapability(Outputs));
+  int outputs = std::min(32, GetCurrentFirmware()->getCapability(Outputs));
   if (outputs <= 16) {
     // hide second Outputs tab
     tabWidget->removeTab(tabWidget->indexOf(ui->outputs2));
@@ -372,8 +483,7 @@ void SimulatorDialog::initUi(T * ui)
       line =   (i-16) % (std::min(16,outputs-16)/2);
     }
     QLabel * label = new QLabel(tabWidget);
-    ModelData model;
-    label->setText(RawSource(SOURCE_TYPE_CH, i).toString(&model));
+    label->setText(RawSource(SOURCE_TYPE_CH, i).toString());
     outputTab->addWidget(label, line, column == 0 ? 0 : 5, 1, 1);
 
     QSlider * slider = new QSlider(tabWidget);
@@ -426,14 +536,24 @@ void SimulatorDialog::initUi(T * ui)
     for (int fm=0; fm<fmodes; fm++) {
       QLabel * label = new QLabel(tabWidget);
       label->setText(QString("FM%1").arg(fm));
+      label->setAlignment(Qt::AlignCenter);
       ui->gvarsLayout->addWidget(label, 0, fm+1);
     }
     for (int i=0; i<gvars; i++) {
       QLabel * label = new QLabel(tabWidget);
       label->setText(QString("GV%1").arg(i+1));
+      label->setAutoFillBackground(true);
+      if ((i % 2) ==0 ) {
+        label->setStyleSheet("QLabel { background-color: rgb(220, 220, 220) }");
+      }
       ui->gvarsLayout->addWidget(label, i+1, 0);
       for (int fm=0; fm<fmodes; fm++) {
         QLabel * value = new QLabel(tabWidget);
+        value->setAutoFillBackground(true);
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        if ((i % 2) ==0 ) {
+          value->setStyleSheet("QLabel { background-color: rgb(220, 220, 220) }");
+        }
         gvarValues << value;
         ui->gvarsLayout->addWidget(value, i+1, fm+1);
       }
@@ -559,6 +679,8 @@ void SimulatorDialog::onTimerEvent()
       QApplication::beep();
     }
   }
+
+  updateDebugOutput();
 }
 
 void SimulatorDialog::centerSticks()
@@ -617,9 +739,9 @@ void SimulatorDialog9X::getValues()
     },
 
     {
-      ui->dialP_1->value(),
-      ui->dialP_2->value(),
-      ui->dialP_3->value(), 0
+      pots[0]->value(),
+      pots[1]->value(),
+      pots[2]->value()
     },
 
     {
@@ -711,6 +833,13 @@ void SimulatorDialogTaranis::on_switchH_sliderReleased()
 
 void SimulatorDialogTaranis::getValues()
 {
+  for (int i=0; i<pots.count(); i++) {
+    if (flags & (SIMULATOR_FLAGS_S1_MULTI << i)) {
+      int s1 = round((pots[i]->value()+1024)/(2048.0/5))*(2048.0/5)-1024;
+      pots[i]->setValue(s1);
+    }
+  }
+
   TxInputs inputs = {
     {
       int(1024*nodeLeft->getX()),  // LEFT HORZ
@@ -720,11 +849,11 @@ void SimulatorDialogTaranis::getValues()
     },
 
     {
-      -ui->dialP_1->value(),
-      ui->dialP_2->value(),
-      0,
-      -ui->dialP_3->value(),
-      ui->dialP_4->value()
+      -pots[0]->value(),
+      pots[1]->value(),
+      ((flags && SIMULATOR_FLAGS_S3) ? pots[2]->value() : 0),
+      -sliders[0]->value(),
+      sliders[1]->value()
     },
 
     {
@@ -739,7 +868,7 @@ void SimulatorDialogTaranis::getValues()
     },
 
     {
-      buttonPressed == Qt::Key_Menu,
+      buttonPressed == Qt::Key_PageUp,
       buttonPressed == Qt::Key_Escape,
       buttonPressed == Qt::Key_Enter,
       buttonPressed == Qt::Key_PageDown,
@@ -998,18 +1127,9 @@ void SimulatorDialog::onjoystickAxisValueChanged(int axis, int value)
     } 
     else if (stick==4) {
       nodeLeft->setX(stickval/1024.0);
-    } 
-    else if (stick==5) {
-      dialP_1->setValue(stickval);
     }
-    else if (stick==6) {
-      dialP_2->setValue(stickval);
-    }
-    else if (stick==7) {
-      dialP_3->setValue(stickval);
-    }
-    else if (stick==8 && dialP_4) {
-      dialP_4->setValue(stickval);
+    else if (stick >= 5 && stick < 5+pots.count()) {
+      pots[stick-5]->setValue(stickval);
     }
   }
 }

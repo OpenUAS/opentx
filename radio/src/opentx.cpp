@@ -35,19 +35,10 @@
  */
 
 #include "opentx.h"
+#include "timers.h"
 
-#if defined(SPLASH)
-const pm_uchar splashdata[] PROGMEM = { 'S','P','S',0,
-#if defined(PCBTARANIS)
-#include "bitmaps/Taranis/splash.lbm"
-#else
-#include "bitmaps/9X/splash.lbm"
-#endif
-	'S','P','E',0};
-const pm_uchar * const splash_lbm = splashdata+4;
-#endif
-
-#if defined(PCBTARANIS)
+#if defined(COLORLCD)
+#elif defined(PCBTARANIS)
   const pm_uchar asterisk_lbm[] PROGMEM = {
     #include "bitmaps/Taranis/asterisk.lbm"
   };
@@ -57,10 +48,12 @@ const pm_uchar * const splash_lbm = splashdata+4;
   };
 #endif
 
-#include "gui/menus.h"
-
 EEGeneral  g_eeGeneral;
 ModelData  g_model;
+
+#if defined(SDCARD)
+Clipboard clipboard;
+#endif
 
 #if defined(PCBTARANIS) && defined(SDCARD)
 uint8_t modelBitmap[MODEL_BITMAP_SIZE];
@@ -76,8 +69,10 @@ void loadModelBitmap(char *name, uint8_t *bitmap)
     }
   }
 
+#if !defined(COLORLCD)
   // In all error cases, we set the default logo
   memcpy(bitmap, logo_taranis, MODEL_BITMAP_SIZE);
+#endif
 }
 #endif
 
@@ -153,11 +148,14 @@ void per10ms()
   }
 #endif
 
+#if defined(GUI)
   if (lightOffCounter) lightOffCounter--;
   if (flashCounter) flashCounter--;
   if (s_noHi) s_noHi--;
+#endif
+
   if (trimsCheckTimer) trimsCheckTimer--;
-  if (ppmInValid) ppmInValid--;
+  if (ppmInputValidityTimer) ppmInputValidityTimer--;
 
 #if defined(CPUARM)
   if (trimsDisplayTimer)
@@ -265,6 +263,21 @@ void generalDefault()
   g_eeGeneral.contrast = 25;
 
 #if defined(PCBTARANIS)
+  g_eeGeneral.potsConfig = 0x05;    // S1 and S2 = pots with detent
+  g_eeGeneral.slidersConfig = 0x03; // LS and RS = sliders with detent
+#endif
+
+#if defined(PCBTARANIS)
+  g_eeGeneral.switchConfig = 0x00007bff; // 6x3POS, 1x2POS, 1xTOGGLE
+#endif
+
+#if defined(PCBTARANIS) && defined(REV9E)
+  // NI-MH 9.6V
+  g_eeGeneral.vBatWarn = 87;
+  g_eeGeneral.vBatMin = -5;
+  g_eeGeneral.vBatMax = -5;
+#elif defined(PCBTARANIS)
+  // NI-MH 7.2V
   g_eeGeneral.vBatWarn = 65;
   g_eeGeneral.vBatMin = -30;
   g_eeGeneral.vBatMax = -40;
@@ -291,6 +304,19 @@ void generalDefault()
   g_eeGeneral.backgroundVolume = 1;
 #endif
 
+#if defined(CPUARM)
+  for (int i=0; i<NUM_STICKS; ++i) {
+    g_eeGeneral.trainer.mix[i].mode = 2;
+    g_eeGeneral.trainer.mix[i].srcChn = channel_order(i+1) - 1;
+    g_eeGeneral.trainer.mix[i].studWeight = 100;
+  }
+#endif
+
+#if defined(PCBTARANIS) && defined(REV9E)
+  const int8_t defaultName[] = { 20, -1, -18, -1, -14, -9, -19 };
+  memcpy(g_eeGeneral.bluetoothName, defaultName, sizeof(defaultName));
+#endif
+
   g_eeGeneral.chkSum = 0xFFFF;
 }
 
@@ -303,7 +329,7 @@ uint16_t evalChkSum()
   return sum;
 }
 
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
 void clearInputs()
 {
   memset(g_model.expoData, 0, sizeof(g_model.expoData)); // clear all expos
@@ -321,13 +347,17 @@ void defaultInputs()
     expo->chn = i;
     expo->weight = 100;
     expo->mode = 3; // TODO constant
+#if defined(TRANSLATIONS_CZ)
     for (int c=0; c<4; c++) {
-#if defined(TRANSLATIONS_CZ) && defined(CPUARM)
-      g_model.inputNames[i][c] = char2idx(STR_INPUTNAMES[1+STR_INPUTNAMES[0]*(stick_index-1)+c]);
-#else
-      g_model.inputNames[i][c] = char2idx(STR_VSRCRAW[1+STR_VSRCRAW[0]*stick_index+c]);
-#endif
+      g_model.inputNames[i][c] = char2idx(STR_INPUTNAMES[1+4*(stick_index-1)+c]);
     }
+    g_model.inputNames[i][4] = '\0';
+#else
+    for (int c=0; c<3; c++) {
+      g_model.inputNames[i][c] = char2idx(STR_VSRCRAW[2+4*stick_index+c]);
+    }
+    g_model.inputNames[i][3] = '\0';
+#endif
   }
   eeDirty(EE_MODEL);
 }
@@ -341,45 +371,37 @@ inline void applyDefaultTemplate()
 #else
 void applyDefaultTemplate()
 {
-  for (int i=0; i<NUM_STICKS; i++) {
-#if defined(PCBTARANIS)
-    uint8_t stick_index = channel_order(i+1);
-    ExpoData *expo = expoAddress(i);
-    expo->srcRaw = MIXSRC_Rud - 1 + stick_index;
-    expo->curve.type = CURVE_REF_EXPO;
-    expo->chn = i;
-    expo->weight = 100;
-    expo->mode = 3; // TODO constant
-    for (int c=0; c<4; c++) {
-#if defined(TRANSLATIONS_CZ) && defined(CPUARM)
-      g_model.inputNames[i][c] = char2idx(STR_INPUTNAMES[1+STR_INPUTNAMES[0]*(stick_index-1)+c]);
-#else
-      g_model.inputNames[i][c] = char2idx(STR_VSRCRAW[1+STR_VSRCRAW[0]*stick_index+c]);
-#endif
-    }
+#if defined(VIRTUALINPUTS)
+  defaultInputs();
 #endif
 
+  for (int i=0; i<NUM_STICKS; i++) {
     MixData *mix = mixAddress(i);
     mix->destCh = i;
     mix->weight = 100;
-
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
     mix->srcRaw = i+1;
 #else
     mix->srcRaw = MIXSRC_Rud - 1 + channel_order(i+1);
 #endif
   }
-  eeDirty(EE_MODEL);
 }
 #endif
 
 #if defined(CPUARM)
-void checkModelIdUnique(uint8_t id)
+void checkModelIdUnique(uint8_t index, uint8_t module)
 {
-  for (uint8_t i=0; i<MAX_MODELS; i++) {
-    if (i!=id && g_model.header.modelId!=0 && g_model.header.modelId==modelHeaders[i].modelId) {
-      POPUP_WARNING(STR_MODELIDUSED);
-      break;
+  uint8_t modelId = g_model.header.modelId[module];
+  if (modelId != 0) {
+    for (uint8_t i=0; i<MAX_MODELS; i++) {
+      if (i != index) {
+        for (uint8_t j=0; j<NUM_MODULES; j++) {
+          if (modelId == modelHeaders[i].modelId[j]) {
+            POPUP_WARNING(STR_MODELIDUSED);
+            return;
+          }
+        }
+      }
     }
   }
 }
@@ -409,13 +431,17 @@ void modelDefault(uint8_t id)
   }
 #endif
 
-#if defined(CPUARM) && !defined(PCBTARANIS)
-  g_model.externalModule = MODULE_TYPE_PPM;
+#if defined(PCBTARANIS)
+  g_model.moduleData[INTERNAL_MODULE].type = MODULE_TYPE_XJT;
+#elif defined(PCBSKY9X)
+  g_model.moduleData[EXTERNAL_MODULE].type = MODULE_TYPE_PPM;
 #endif
 
-#if defined(PXX) && defined(CPUARM)
-  modelHeaders[id].modelId = g_model.header.modelId = id+1;
-  checkModelIdUnique(id);
+#if defined(CPUARM)
+  for (int i=0; i<NUM_MODULES; i++) {
+    modelHeaders[id].modelId[i] = g_model.header.modelId[i] = id+1;
+  }
+  checkModelIdUnique(id, 0);
 #endif
 
 #if defined(CPUARM) && defined(FLIGHT_MODES) && defined(GVARS)
@@ -432,7 +458,7 @@ void modelDefault(uint8_t id)
 #endif
 }
 
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
 bool isInputRecursive(int index)
 {
   ExpoData * line = expoAddress(0);
@@ -454,7 +480,7 @@ int8_t getMovedSource(GET_MOVED_SOURCE_PARAMS)
   int8_t result = 0;
   static tmr10ms_t s_move_last_time = 0;
 
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
   static int16_t inputsStates[MAX_INPUTS];
   if (min <= MIXSRC_FIRST_INPUT) {
     for (uint8_t i=0; i<MAX_INPUTS; i++) {
@@ -484,7 +510,7 @@ int8_t getMovedSource(GET_MOVED_SOURCE_PARAMS)
   }
 
   if (result || recent) {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
     memcpy(inputsStates, anas, sizeof(inputsStates));
 #endif
     memcpy(sourcesStates, calibratedStick, sizeof(sourcesStates));
@@ -520,7 +546,7 @@ trim_t getRawTrimValue(uint8_t phase, uint8_t idx)
 
 int getTrimValue(uint8_t phase, uint8_t idx)
 {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
   int result = 0;
   for (uint8_t i=0; i<MAX_FLIGHT_MODES; i++) {
     trim_t v = getRawTrimValue(phase, idx);
@@ -546,7 +572,7 @@ int getTrimValue(uint8_t phase, uint8_t idx)
 #endif
 }
 
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
 bool setTrimValue(uint8_t phase, uint8_t idx, int trim)
 {
   for (uint8_t i=0; i<MAX_FLIGHT_MODES; i++) {
@@ -585,7 +611,7 @@ void setTrimValue(uint8_t phase, uint8_t idx, int trim)
 }
 #endif
 
-#if !defined(PCBTARANIS)
+#if !defined(VIRTUALINPUTS)
 uint8_t getTrimFlightPhase(uint8_t phase, uint8_t idx)
 {
   for (uint8_t i=0; i<MAX_FLIGHT_MODES; i++) {
@@ -955,30 +981,14 @@ bool readonlyUnlocked()
 #endif
 
 #if defined(SPLASH)
-
-inline void Splash()
-{
-  lcd_clear();
-#if defined(PCBTARANIS)
-  lcd_bmp(0, 0, splash_lbm);
-#else
-  lcd_img(0, 0, splash_lbm, 0, 0);
-#endif
-
-#if MENUS_LOCK == 1
-  if (readonly == false) {
-    lcd_filled_rect((LCD_W-(sizeof(TR_UNLOCKED)-1)*FW)/2 - 9, 50, (sizeof(TR_UNLOCKED)-1)*FW+16, 11, SOLID, ERASE|ROUND);
-    lcd_puts((LCD_W-(sizeof(TR_UNLOCKED)-1)*FW)/2 , 53, STR_UNLOCKED);
-  }
-#endif
-
-  lcdRefresh();
-}
-
 void doSplash()
 {
+#if defined(PCBTARANIS) && defined(REV9E)
+  bool refresh = false;
+#endif
+
   if (SPLASH_NEEDED()) {
-    Splash();
+    displaySplash();
 
 #if !defined(CPUARM)
     AUDIO_TADA();
@@ -997,7 +1007,8 @@ void doSplash()
     inputsMoved();
 
     tmr10ms_t tgtime = get_tmr10ms() + SPLASH_TIMEOUT;
-    while (tgtime != get_tmr10ms()) {
+
+    while (tgtime > get_tmr10ms()) {
 #if defined(SIMU)
       SIMU_SLEEP(1);
 #elif defined(CPUARM)
@@ -1017,7 +1028,23 @@ void doSplash()
       }
 #endif
 
-      if (pwrCheck()==e_power_off) return;
+#if defined(PCBTARANIS) && defined(REV9E)
+      uint32_t pwr_check = pwrCheck();
+      if (pwr_check == e_power_off) {
+        break;
+      }
+      else if (pwr_check == e_power_press) {
+        refresh = true;
+      }
+      else if (pwr_check == e_power_on && refresh) {
+        displaySplash();
+        refresh = false;
+      }
+#else
+      if (pwrCheck() == e_power_off) {
+        return;
+      }
+#endif
 
 #if !defined(PCBTARANIS) && !defined(PCBSTD)
       if (curTime < get_tmr10ms()) {
@@ -1038,9 +1065,27 @@ void doSplash()
 #define doSplash()
 #endif
 
+#if defined(PCBTARANIS)
+void checkFailsafe()
+{
+  for (int i=0; i<NUM_MODULES; i++) {
+    if (IS_MODULE_XJT(i)) {
+      ModuleData & moduleData = g_model.moduleData[i];
+      if (HAS_RF_PROTOCOL_FAILSAFE(moduleData.rfProtocol) && moduleData.failsafeMode == FAILSAFE_NOT_SET) {
+        ALERT(STR_FAILSAFEWARN, STR_NO_FAILSAFE, AU_ERROR);
+        break;
+      }
+    }
+  }
+}
+#else
+#define checkFailsafe()
+#endif
+
+#if defined(GUI)
 void checkAll()
 {
-#if !defined(PCBSKY9X)
+#if defined(EEPROM_RLC)
   checkLowEEPROM();
 #endif
 
@@ -1049,6 +1094,7 @@ void checkAll()
 #else
   checkTHR();
   checkSwitches();
+  checkFailsafe();
 #endif
 
 #if defined(CPUARM)
@@ -1076,6 +1122,7 @@ void checkAll()
 
   START_SILENCE_PERIOD();
 }
+#endif // GUI
 
 #if defined(MODULE_ALWAYS_SEND_PULSES)
 void checkStartupWarnings()
@@ -1089,7 +1136,7 @@ void checkStartupWarnings()
 }
 #endif
 
-#if !defined(PCBSKY9X)
+#if defined(EEPROM_RLC)
 void checkLowEEPROM()
 {
   if (g_eeGeneral.disableMemoryWarning) return;
@@ -1114,7 +1161,7 @@ void checkTHR()
   }
   else {
     calibratedStick[thrchn] = -1024;
-#if !defined(PCBTARANIS)
+#if !defined(VIRTUALINPUTS)
     if (thrchn < NUM_STICKS) {
       rawAnas[thrchn] = anas[thrchn] = calibratedStick[thrchn];
     }
@@ -1122,15 +1169,25 @@ void checkTHR()
     MESSAGE(STR_THROTTLEWARN, STR_THROTTLENOTIDLE, STR_PRESSANYKEYTOSKIP, AU_THROTTLE_ALERT);
   }
 #else
-  if (g_model.disableThrottleWarning) return;
+  if (g_model.disableThrottleWarning) {
+    return;
+  }
+
   getADC();
+
   evalInputs(e_perout_mode_notrainer); // let do evalInputs do the job
 
   int16_t v = calibratedStick[thrchn];
-  if (v<=(THRCHK_DEADBAND-1024)) return;  // prevent warning if throttle input OK
+  if (v <= THRCHK_DEADBAND-1024) {
+    return; // prevent warning if throttle input OK
+  }
 
   // first - display warning; also deletes inputs if any have been before
   MESSAGE(STR_THROTTLEWARN, STR_THROTTLENOTIDLE, STR_PRESSANYKEYTOSKIP, AU_THROTTLE_ALERT);
+
+#if defined(PCBTARANIS) && defined(REV9E)
+  bool refresh = false;
+#endif
 
   while (1) {
 
@@ -1139,10 +1196,30 @@ void checkTHR()
     getADC();
 
     evalInputs(e_perout_mode_notrainer); // let do evalInputs do the job
+
     v = calibratedStick[thrchn];
 
-    if (pwrCheck()==e_power_off || keyDown() || v<=(THRCHK_DEADBAND-1024))
+#if defined(PCBTARANIS) && defined(REV9E)
+    uint32_t pwr_check = pwrCheck();
+    if (pwr_check == e_power_off) {
       break;
+    }
+    else if (pwr_check == e_power_press) {
+      refresh = true;
+    }
+    else if (pwr_check == e_power_on && refresh) {
+      MESSAGE(STR_THROTTLEWARN, STR_THROTTLENOTIDLE, STR_PRESSANYKEYTOSKIP, AU_NONE);
+      refresh = false;
+    }
+#else
+    if (pwrCheck() == e_power_off) {
+      break;
+    }
+#endif
+
+    if (keyDown() || v <= THRCHK_DEADBAND-1024) {
+      break;
+    }
 
     checkBacklight();
 
@@ -1153,73 +1230,51 @@ void checkTHR()
 
 void checkAlarm() // added by Gohst
 {
-  if (g_eeGeneral.disableAlarmWarning)
+  if (g_eeGeneral.disableAlarmWarning) {
     return;
+  }
 
-  if (IS_SOUND_OFF())
+  if (IS_SOUND_OFF()) {
     ALERT(STR_ALARMSWARN, STR_ALARMSDISABLED, AU_ERROR);
+  }
 }
 
 void alert(const pm_char * t, const pm_char *s MESSAGE_SOUND_ARG)
 {
   MESSAGE(t, s, STR_PRESSANYKEY, sound);
 
+#if defined(PCBTARANIS) && defined(REV9E)
+  bool refresh = false;
+#endif
+
   while(1)
   {
     SIMU_SLEEP(1);
-
-    if (pwrCheck() == e_power_off) {
-      // the radio has been powered off during the ALERT
-      pwrOff(); // turn power off now
-    }
 
     if (keyDown()) return;  // wait for key release
 
     checkBacklight();
 
     wdt_reset();
-  }
-}
 
-void message(const pm_char *title, const pm_char *t, const char *last MESSAGE_SOUND_ARG)
-{
-  lcd_clear();
-
-#if LCD_W >= 212
-  lcd_bmp(0, 0, asterisk_lbm);
-  #define MESSAGE_LCD_OFFSET   60
+#if defined(PCBTARANIS) && defined(REV9E)
+    uint32_t pwr_check = pwrCheck();
+    if (pwr_check == e_power_off) {
+      boardOff();
+    }
+    else if (pwr_check == e_power_press) {
+      refresh = true;
+    }
+    else if (pwr_check == e_power_on && refresh) {
+      MESSAGE(t, s, STR_PRESSANYKEY, AU_NONE);
+      refresh = false;
+    }
 #else
-  lcd_img(2, 0, asterisk_lbm, 0, 0);
-  #define MESSAGE_LCD_OFFSET   6*FW
+    if (pwrCheck() == e_power_off) {
+      boardOff(); // turn power off now
+    }
 #endif
-
-#if defined(TRANSLATIONS_FR) || defined(TRANSLATIONS_IT) || defined(TRANSLATIONS_CZ)
-  lcd_putsAtt(MESSAGE_LCD_OFFSET, 0, STR_WARNING, DBLSIZE);
-  lcd_putsAtt(MESSAGE_LCD_OFFSET, 2*FH, title, DBLSIZE);
-#else
-  lcd_putsAtt(MESSAGE_LCD_OFFSET, 0, title, DBLSIZE);
-  lcd_putsAtt(MESSAGE_LCD_OFFSET, 2*FH, STR_WARNING, DBLSIZE);
-#endif
-
-#if LCD_W >= 212
-  lcd_filled_rect(MESSAGE_LCD_OFFSET, 0, LCD_W-MESSAGE_LCD_OFFSET, 32);
-  if (t) lcd_puts(MESSAGE_LCD_OFFSET, 5*FH, t);
-  if (last) {
-    lcd_puts(MESSAGE_LCD_OFFSET, 7*FH, last);
-    AUDIO_ERROR_MESSAGE(sound);
   }
-#else
-  lcd_filled_rect(0, 0, LCD_W, 32);
-  if (t) lcd_putsLeft(5*FH, t);
-  if (last) {
-    lcd_putsLeft(7*FH, last);
-    AUDIO_ERROR_MESSAGE(sound);
-  }
-#endif
-
-  lcdRefresh();
-  lcdSetContrast();
-  clearKeyEvents();
 }
 
 #if defined(GVARS)
@@ -1261,7 +1316,7 @@ uint8_t checkTrim(uint8_t event)
     }
     else {
       phase = getTrimFlightPhase(mixerCurrentFlightMode, idx);
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
       before = getTrimValue(phase, idx);
 #else
       before = getRawTrimValue(phase, idx);
@@ -1270,7 +1325,7 @@ uint8_t checkTrim(uint8_t event)
     }
 #else
     phase = getTrimFlightPhase(mixerCurrentFlightMode, idx);
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
     before = getTrimValue(phase, idx);
 #else
     before = getRawTrimValue(phase, idx);
@@ -1311,7 +1366,7 @@ uint8_t checkTrim(uint8_t event)
     else
 #endif
     {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
       if (!setTrimValue(phase, idx, after)) {
         // we don't play a beep, so we exit now the function
         return;
@@ -1360,7 +1415,7 @@ uint8_t checkTrim(uint8_t event)
 }
 
 #if !defined(SIMU)
-static uint16_t s_anaFilt[NUMBER_ANALOG];
+uint16_t s_anaFilt[NUMBER_ANALOG];
 #endif
 
 #if defined(SIMU)
@@ -1378,7 +1433,7 @@ uint16_t BandGap ;
 #if !defined(SIMU)
 uint16_t anaIn(uint8_t chan)
 {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
   return s_anaFilt[chan];
 #elif defined(PCBSKY9X) && !defined(REVA)
   static const uint8_t crossAna[]={1,5,7,0,4,6,2,3};
@@ -1388,7 +1443,11 @@ uint16_t anaIn(uint8_t chan)
   volatile uint16_t *p = &s_anaFilt[pgm_read_byte(crossAna+chan)];
   return *p;
 #else
+#if defined(TELEMETRY_MOD_14051) || defined(TELEMETRY_MOD_14051_SWAPPED)
+  static const pm_char crossAna[] PROGMEM = {3,1,2,0,4,5,6,0/* shouldn't be used */,TX_VOLTAGE};
+#else
   static const pm_char crossAna[] PROGMEM = {3,1,2,0,4,5,6,7};
+#endif
 #if defined(FRSKY_STICKS)
   volatile uint16_t temp = s_anaFilt[pgm_read_byte(crossAna+chan)];  // volatile saves here 40 bytes; maybe removed for newer AVR when available
   if (chan < NUM_STICKS && (g_eeGeneral.stickReverse & (1 << chan))) {
@@ -1412,14 +1471,14 @@ void getADC()
     for (uint32_t x=0; x<NUMBER_ANALOG; x++) {
       temp[x] += getAnalogValue(x);
     }
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
     if (calibrationState) break;
 #endif
   }
 
   for (uint32_t x=0; x<NUMBER_ANALOG; x++) {
     uint16_t v = temp[x] >> 3;
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
     if (calibrationState) v = temp[x] >> 1;
     StepsCalibData * calib = (StepsCalibData *) &g_eeGeneral.calib[x];
     if (!calibrationState && IS_POT_MULTIPOS(x) && calib->count>0 && calib->count<XPOTS_MULTIPOS_COUNT) {
@@ -1436,132 +1495,6 @@ void getADC()
 #endif
     s_anaFilt[x] = v;
   }
-}
-#else
-
-/**
- * Read ADC using 10 bits
- */
-inline uint16_t read_adc10(uint8_t adc_input) 
-{
-  uint16_t temp_ana;
-  ADMUX = adc_input|ADC_VREF_TYPE;
-#if defined(TELEMETRY_MOD_14051)
-  ADCSRA &= 0x87;
-#endif
-  ADCSRA |= 1 << ADSC; // Start the AD conversion
-  while (ADCSRA & (1 << ADSC)); // Wait for the AD conversion to complete
-  temp_ana = ADC;
-  ADCSRA |= 1 << ADSC; // Start the second AD conversion
-  while (ADCSRA & (1 << ADSC)); // Wait for the AD conversion to complete
-  temp_ana += ADC;
-  return temp_ana;
-}
-
-#if defined(TELEMETRY_MOD_14051)
-enum MuxInput {
-  MUX_BATT,
-  MUX_THR,
-  MUX_AIL,
-  MUX_MAX = MUX_AIL
-};
-
-uint8_t pf7_digital[2];
-/**
- * Update ADC PF7 using 14051 multiplexer
- * X0 : Battery voltage
- * X1 : THR SW
- * X2 : AIL SW
- */
-void readMultiplexAna()
-{
-  static uint8_t muxNum = MUX_BATT;
-  uint16_t temp_ana;
-  uint8_t nextMuxNum = muxNum-1;
-
-  DDRC |= 0xC1;
-  temp_ana = read_adc10(7);
-
-  switch (muxNum) {
-    case MUX_BATT:
-      s_anaFilt[TX_VOLTAGE] = temp_ana;
-      nextMuxNum = MUX_MAX;
-      break;
-    case MUX_THR:
-    case MUX_AIL:
-      // Digital switch depend from input voltage
-      // take half voltage to determine digital state
-      pf7_digital[muxNum-1] = (temp_ana >= (s_anaFilt[TX_VOLTAGE] / 2)) ? 1 : 0;
-      break;
-  }
-
-  // set the mux number for the next ADC convert,
-  // stabilize voltage before ADC read.
-  muxNum = nextMuxNum;
-  PORTC &= ~((1 << PC7) | (1 << PC6) | (1 << PC0)); // Clear CTRL ABC
-  switch (muxNum) {
-    case 1:
-      PORTC |= (1 << PC6); // Mux CTRL A : SW_THR
-      break;
-    case 2:
-      PORTC |= (1 << PC7); // Mux CTRL B : SW_AIL
-      break;
-  }
-}
-#endif
-
-void getADC()
-{
-#if defined(TELEMETRY_MOD_14051)
-  readMultiplexAna();
-  #define ADC_READ_COUNT 7
-#else
-  #define ADC_READ_COUNT 8
-#endif
-  
-  for (uint8_t adc_input=0; adc_input<ADC_READ_COUNT; adc_input++) {
-    s_anaFilt[adc_input] = read_adc10(adc_input);
-  }
-}
-#endif
-
-#if !defined(CPUARM)
-void getADC_bandgap()
-{
-#if defined(PCBGRUVIN9X)
-  static uint8_t s_bgCheck = 0;
-  static uint16_t s_bgSum = 0;
-  ADCSRA|=0x40; // request sample
-  s_bgCheck += 32;
-  while ((ADCSRA & 0x10)==0); ADCSRA|=0x10; // wait for sample
-  if (s_bgCheck == 0) { // 8x over-sample (256/32=8)
-    BandGap = s_bgSum+ADC;
-    s_bgSum = 0;
-  }
-  else {
-    s_bgSum += ADC;
-  }
-  ADCSRB |= (1<<MUX5);
-#elif defined(PCBMEGA2560)
-  BandGap = 2000;  
-#else
-  // TODO is the next line needed (because it has been called before perMain)?
-  ADMUX = 0x1E|ADC_VREF_TYPE; // Switch MUX to internal 1.22V reference
-  
-/*
-  MCUCR|=0x28;  // enable Sleep (bit5) enable ADC Noise Reduction (bit2)
-  asm volatile(" sleep        \n\t");  // if _SLEEP() is not defined use this
-  // ADCSRA|=0x40;
-  while ((ADCSRA & 0x10)==0);
-  ADCSRA|=0x10; // take sample  clear flag?
-  BandGap=ADC;    
-  MCUCR&=0x08;  // disable sleep  
-  */
-
-  ADCSRA |= 0x40;
-  while (ADCSRA & 0x40);
-  BandGap = ADC;
-#endif
 }
 #endif
 
@@ -1582,14 +1515,6 @@ uint8_t trimsDisplayTimer = 0;
 uint8_t trimsDisplayMask = 0;
 #endif
 
-void timerReset(uint8_t idx)
-{
-  TimerState & timerState = timersStates[idx];
-  timerState.state = TMR_OFF; // is changed to RUNNING dep from mode
-  timerState.val = g_model.timers[idx].start;
-  timerState.val_10ms = 0 ;
-}
-
 void flightReset()
 {
   // we don't reset the whole audio here (the tada.wav would be cut, if a prompt is queued before FlightReset, it should be played)
@@ -1599,9 +1524,17 @@ void flightReset()
     timerReset(0);
   }
 
+#if TIMERS > 1
   if (!IS_MANUAL_RESET_TIMER(1)) {
     timerReset(1);
   }
+#endif
+
+#if TIMERS > 2
+  if (!IS_MANUAL_RESET_TIMER(2)) {
+    timerReset(2);
+  }
+#endif
 
 #if defined(FRSKY)
   telemetryReset();
@@ -1613,8 +1546,6 @@ void flightReset()
 
   RESET_THR_TRACE();
 }
-
-TimerState timersStates[MAX_TIMERS] = { { 0 }, { 0 } };
 
 #if defined(THRTRACE)
 uint8_t  s_traceBuf[MAXTRACE];
@@ -1636,7 +1567,7 @@ FORCEINLINE void evalTrims()
   for (uint8_t i=0; i<NUM_STICKS; i++) {
     // do trim -> throttle trim if applicable
     int16_t trim = getTrimValue(phase, i);
-#if !defined(PCBTARANIS)
+#if !defined(VIRTUALINPUTS)
     if (i==THR_STICK && g_model.thrTrim) {
       int16_t trimMin = g_model.extendedTrims ? TRIM_EXTENDED_MIN : TRIM_MIN;
       trim = (((g_model.throttleReversed)?(int32_t)(trim+trimMin):(int32_t)(trim-trimMin)) * (RESX-anas[i])) >> (RESX_SHIFT+1);
@@ -1688,12 +1619,10 @@ void doMixerCalculations()
   Current_analogue = (Current_analogue*31 + s_anaFilt[8] ) >> 5 ;
   if (Current_analogue > Current_max)
     Current_max = Current_analogue ;
-#elif defined(PCBGRUVIN9X) && !defined(SIMU)
-  // For PCB V4, use our own 1.2V, external reference (connected to ADC3)
-  ADCSRB &= ~(1<<MUX5);
-  ADMUX = 0x03|ADC_VREF_TYPE; // Switch MUX to internal reference
-#elif defined(PCBSTD) && !defined(SIMU)
-  ADMUX = 0x1E|ADC_VREF_TYPE; // Switch MUX to internal reference
+#endif
+
+#if !defined(CPUARM)
+  adcPrepareBandgap();
 #endif
 
   evalMixes(tick10ms);
@@ -1752,7 +1681,7 @@ void doMixerCalculations()
       if (val<0) val=0;  // prevent val be negative, which would corrupt throttle trace and timers; could occur if safetyswitch is smaller than limits
     }
     else {
-#ifdef PCBTARANIS
+#if defined(VIRTUALINPUTS)
       val = RESX + calibratedStick[g_model.thrTraceSrc == 0 ? THR_STICK : g_model.thrTraceSrc+NUM_STICKS-1];
 #else
       val = RESX + (g_model.thrTraceSrc == 0 ? rawAnas[THR_STICK] : calibratedStick[g_model.thrTraceSrc+NUM_STICKS-1]);
@@ -1765,95 +1694,7 @@ void doMixerCalculations()
     val >>= (RESX_SHIFT-4); // calibrate it
 #endif
 
-    // Timers start
-    for (uint8_t i=0; i<MAX_TIMERS; i++) {
-      int8_t tm = g_model.timers[i].mode;
-      uint16_t tv = g_model.timers[i].start;
-      TimerState * timerState = &timersStates[i];
-
-      if (tm) {
-        if (timerState->state == TMR_OFF) {
-          timerState->state = TMR_RUNNING;
-          timerState->cnt = 0;
-          timerState->sum = 0;
-        }
-
-        if (tm == TMRMODE_THR_REL) {
-          timerState->cnt++;
-          timerState->sum+=val;
-        }
-
-        if ((timerState->val_10ms += tick10ms) >= 100) {
-          timerState->val_10ms -= 100 ;
-          int16_t newTimerVal = timerState->val;
-          if (tv) newTimerVal = tv - newTimerVal;
-
-          if (tm == TMRMODE_ABS) {
-            newTimerVal++;
-          }
-          else if (tm == TMRMODE_THR) {
-            if (val) newTimerVal++;
-          }
-          else if (tm == TMRMODE_THR_REL) {
-            // @@@ open.20.fsguruh: why so complicated? we have already a s_sum field; use it for the half seconds (not showable) as well
-            // check for s_cnt[i]==0 is not needed because we are shure it is at least 1
-#if defined(ACCURAT_THROTTLE_TIMER)
-            if ((timerState->sum/timerState->cnt) >= 128) {  // throttle was normalized to 0 to 128 value (throttle/64*2 (because - range is added as well)
-              newTimerVal++;  // add second used of throttle
-              timerState->sum -= 128*timerState->cnt;
-            }
-#else
-            if ((timerState->sum/timerState->cnt) >= 32) {  // throttle was normalized to 0 to 32 value (throttle/16*2 (because - range is added as well)
-              newTimerVal++;  // add second used of throttle
-              timerState->sum -= 32*timerState->cnt;
-            }
-#endif
-            timerState->cnt=0;
-          }
-          else if (tm == TMRMODE_THR_TRG) {
-            if (val) {
-              timerState->state = TMR_TRIGGED;
-            }
-            if (timerState->state == TMR_TRIGGED) {
-              newTimerVal++;
-            }
-          }
-          else {
-            if (tm > 0) tm -= (TMRMODE_COUNT-1);
-            if (getSwitch(tm))
-              newTimerVal++;
-          }
-
-          switch (timerState->state) {
-            case TMR_RUNNING:
-              if (tv && newTimerVal>=(int16_t)tv) {
-                AUDIO_TIMER_00(g_model.timers[i].countdownBeep);
-                timerState->state = TMR_NEGATIVE;
-              }
-              break;
-            case TMR_NEGATIVE:
-              if (newTimerVal >= (int16_t)tv + MAX_ALERT_TIME) timerState->state = TMR_STOPPED;
-              break;
-          }
-
-          if (tv) newTimerVal = tv - newTimerVal; // if counting backwards - display backwards
-
-          if (newTimerVal != timerState->val) {
-            timerState->val = newTimerVal;
-            if (timerState->state == TMR_RUNNING) {
-              if (g_model.timers[i].countdownBeep && g_model.timers[i].start) {
-                if (newTimerVal==30) AUDIO_TIMER_30();
-                if (newTimerVal==20) AUDIO_TIMER_20();
-                if (newTimerVal<=10) AUDIO_TIMER_LT10(g_model.timers[i].countdownBeep, newTimerVal);
-              }
-              if (g_model.timers[i].minuteBeep && (newTimerVal % 60)==0) {
-                AUDIO_TIMER_MINUTE(newTimerVal);
-              }
-            }
-          }
-        }
-      }
-    } //endfor timer loop (only two)
+    evalTimers(val, tick10ms);
 
     static uint8_t  s_cnt_100ms;
     static uint8_t  s_cnt_1s;
@@ -1868,6 +1709,7 @@ void doMixerCalculations()
       s_cnt_1s += 1;
 
       logicalSwitchesTimerTick();
+      checkTrainerSignalWarning();
 
       if (s_cnt_1s >= 10) { // 1sec
         s_cnt_1s -= 10;
@@ -1973,7 +1815,7 @@ void opentxStart()
   doSplash();
 
 #if defined(DEBUG_TRACE_BUFFER)
-    trace_event(trace_start, 0x12345678); 
+  trace_event(trace_start, 0x12345678);
 #endif 
 
 #if defined(PCBSKY9X) && defined(SDCARD) && !defined(SIMU)
@@ -1986,12 +1828,17 @@ void opentxStart()
   eeLoadModel(g_eeGeneral.currModel);
 #endif
 
+#if defined(GUI)
   checkAlarm();
   checkAll();
+#endif
 
+#if defined(GUI)
   if (g_eeGeneral.chkSum != evalChkSum()) {
     chainMenu(menuFirstCalib);
   }
+#endif
+
 }
 
 #if defined(CPUARM) || defined(CPUM2560)
@@ -2018,7 +1865,7 @@ void opentxClose()
   saveTimers();
 
 #if defined(CPUARM)
-  for (int i=0; i<TELEM_VALUES_MAX; i++) {
+  for (int i=0; i<MAX_SENSORS; i++) {
     TelemetrySensor & sensor = g_model.telemetrySensors[i];
     if (sensor.type == TELEM_TYPE_CALCULATED) {
       if (sensor.persistent && sensor.persistentValue != telemetryItems[i].value) {
@@ -2041,17 +1888,21 @@ void opentxClose()
 #endif
 
 #if defined(PCBTARANIS)
-  if ((g_model.nPotsToWarn >> 6) == 2) {
-    for (uint8_t i=0; i<NUM_POTS; i++)
-      if (!(g_model.nPotsToWarn & (1 << i)))
+  if (g_model.potsWarnMode == POTS_WARN_AUTO) {
+    for (int i=0; i<NUM_POTS; i++) {
+      if (!(g_model.potsWarnEnabled & (1 << i))) {
         SAVE_POT_POSITION(i);
+      }
+    }
     eeDirty(EE_MODEL);
   }
 #endif
 
+#if !defined(PCBTARANIS)
   if (s_eeDirtyMsk & EE_MODEL) {
     displayPopup(STR_SAVEMODEL);
   } 
+#endif
 
   g_eeGeneral.unexpectedShutdown = 0;
 
@@ -2146,10 +1997,13 @@ uint8_t getSticksNavigationEvent()
 void checkBattery()
 {
   static uint8_t counter = 0;
+#if defined(GUI) && !defined(COLORLCD)
+  // TODO not the right menu I think ...
   if (g_menuStack[g_menuStackPtr] == menuGeneralDiagAna) {
     g_vbat100mV = 0;
     counter = 0;
   }
+#endif
   if (counter-- == 0) {
     counter = 10;
     int32_t instant_vbat = anaIn(TX_VOLTAGE);
@@ -2195,7 +2049,7 @@ void checkBattery()
       }
       else
 #endif
-      if (g_vbat100mV <= g_eeGeneral.vBatWarn && g_vbat100mV>50) {
+      if (IS_TXBATT_WARNING() && g_vbat100mV>50) {
         AUDIO_TX_BATTERY_LOW();
       }
 #if defined(PCBSKY9X)
@@ -2208,12 +2062,7 @@ void checkBattery()
 #endif
     }
   }
-
 }
-
-int16_t g_ppmIns[NUM_TRAINER];
-uint8_t ppmInState = 0; // 0=unsync 1..8= wait for value i-1
-uint8_t ppmInValid = 0;
 
 #if !defined(SIMU) && !defined(CPUARM)
 
@@ -2296,41 +2145,22 @@ ISR(TIMER3_CAPT_vect) // G: High frequency noise can cause stack overflo with IS
   PAUSE_PPMIN_INTERRUPT();
   sei(); // enable other interrupts
 
-  uint16_t val = (capture - lastCapt) / 2;
-
-  // G: We process g_ppmIns immediately here, to make servo movement as smooth as possible
-  //    while under trainee control
-  if (val>4000 && val < 16000) { // G: Prioritize reset pulse. (Needed when less than 8 incoming pulses)
-    ppmInState = 1; // triggered
-  }
-  else {
-    if (ppmInState>0 && ppmInState<=8) {
-      if (val>800 && val<2200) { // if valid pulse-width range
-        ppmInValid = PPM_IN_VALID_TIMEOUT;
-        g_ppmIns[ppmInState++ - 1] = (int16_t)(val - 1500) * (uint8_t)(g_eeGeneral.PPM_Multiplier+10)/10; //+-500 != 512, but close enough.
-      }
-      else {
-        ppmInState = 0; // not triggered
-      }
-    }
-  }
-
-  lastCapt = capture;
-
+  captureTrainerPulses(capture);
+  
   cli(); // disable other interrupts for stack pops before this function's RETI
   RESUME_PPMIN_INTERRUPT();
 }
 #endif
 
 #if defined(DSM2_SERIAL) && !defined(CPUARM)
-FORCEINLINE void DSM2_USART0_vect()
+FORCEINLINE void DSM2_USART_vect()
 {
   UDR0 = *((uint16_t*)pulses2MHzRPtr); // transmit next byte
 
   pulses2MHzRPtr += sizeof(uint16_t);
 
   if (pulses2MHzRPtr == pulses2MHzWPtr) { // if reached end of DSM2 data buffer ...
-    UCSR0B &= ~(1 << UDRIE0); // disable UDRE0 interrupt
+    UCSRB_N(TLM_USART) &= ~(1 << UDRIE_N(TLM_USART)); // disable UDRE interrupt
   }
 }
 #endif
@@ -2339,36 +2169,36 @@ FORCEINLINE void DSM2_USART0_vect()
 
 #if defined (FRSKY)
 
-// USART0 Transmit Data Register Emtpy ISR
-FORCEINLINE void FRSKY_USART0_vect()
+FORCEINLINE void FRSKY_USART_vect()
 {
   if (frskyTxBufferCount > 0) {
-    UDR0 = frskyTxBuffer[--frskyTxBufferCount];
+    UDR_N(TLM_USART) = frskyTxBuffer[--frskyTxBufferCount];
   }
   else {
-    UCSR0B &= ~(1 << UDRIE0); // disable UDRE0 interrupt
+    UCSRB_N(TLM_USART) &= ~(1 << UDRIE_N(TLM_USART)); // disable UDRE interrupt
   }
 }
 
-ISR(USART0_UDRE_vect)
+// USART0/1 Transmit Data Register Emtpy ISR
+ISR(USART_UDRE_vect_N(TLM_USART))
 {
 #if defined(FRSKY) && defined(DSM2_SERIAL)
   if (IS_DSM2_PROTOCOL(g_model.protocol)) { // TODO not s_current_protocol?
-    DSM2_USART0_vect();
+    DSM2_USART_vect();
   }
   else {
-    FRSKY_USART0_vect();
+    FRSKY_USART_vect();
   }
 #elif defined(FRSKY)
-  FRSKY_USART0_vect();
+  FRSKY_USART_vect();
 #else
-  DSM2_USART0_vect();
+  DSM2_USART_vect();
 #endif
 }
 #endif
 #endif
 
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
   #define INSTANT_TRIM_MARGIN 10 /* around 1% */
 #else
   #define INSTANT_TRIM_MARGIN 15 /* around 1.5% */
@@ -2376,7 +2206,7 @@ ISR(USART0_UDRE_vect)
 
 void instantTrim()
 {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
   int16_t  anas_0[NUM_INPUTS];
   evalInputs(e_perout_mode_notrainer | e_perout_mode_nosticks);
   memcpy(anas_0, anas, sizeof(anas_0));
@@ -2388,7 +2218,7 @@ void instantTrim()
     if (stick!=THR_STICK) {
       // don't instant trim the throttle stick
       uint8_t trim_phase = getTrimFlightPhase(mixerCurrentFlightMode, stick);
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
       int16_t delta = 0;
       for (int e=0; e<MAX_EXPOS; e++) {
         ExpoData * ed = expoAddress(e);
@@ -2490,7 +2320,7 @@ void moveTrimsToOffsets() // copy state of 3 primary to subtrim
     if (i!=THR_STICK || !g_model.thrTrim) {
       int16_t original_trim = getTrimValue(mixerCurrentFlightMode, i);
       for (uint8_t phase=0; phase<MAX_FLIGHT_MODES; phase++) {
-#if defined(PCBTARANIS)
+#if defined(VIRTUALINPUTS)
         trim_t trim = getRawTrimValue(phase, i);
         if (trim.mode / 2 == phase)
           setTrimValue(phase, i, trim.value - original_trim);
@@ -2508,29 +2338,6 @@ void moveTrimsToOffsets() // copy state of 3 primary to subtrim
   eeDirty(EE_MODEL);
   AUDIO_WARNING2();
 }
-
-#if defined(CPUARM) || defined(CPUM2560)
-void saveTimers()
-{
-  for (uint8_t i=0; i<MAX_TIMERS; i++) {
-    if (g_model.timers[i].persistent) {
-      TimerState *timerState = &timersStates[i];
-      if (g_model.timers[i].value != (uint16_t)timerState->val) {
-        g_model.timers[i].value = timerState->val;
-        eeDirty(EE_MODEL);
-      }
-    }
-  }
-
-#if defined(CPUARM) && !defined(REVA)
-  if (sessionTimer > 0) {
-    g_eeGeneral.globalTimer += sessionTimer;
-    eeDirty(EE_GENERAL);
-    sessionTimer = 0;
-  }
-#endif
-}
-#endif
 
 #if defined(ROTARY_ENCODERS)
   volatile rotenc_t g_rotenc[ROTARY_ENCODERS] = {0};
@@ -2637,15 +2444,17 @@ void opentxInit(OPENTX_INIT_ARGS)
     eeDirty(EE_GENERAL);
   }
 #endif
-  
+
+#if defined(GUI)
   lcdSetContrast();
+#endif
   backlightOn();
 
 #if defined(PCBTARANIS)
   uart3Init(g_eeGeneral.uart3Mode, MODEL_TELEMETRY_PROTOCOL());
 #endif
 
-#if defined(CPUARM) && !defined(SIMU)
+#if defined(PCBSKY9X) && !defined(SIMU)
   init_trainer_capture();
 #endif
 
@@ -2679,19 +2488,25 @@ int main(void)
 
   boardInit();
   
-#if !defined(PCBTARANIS)
+#if defined(GUI) && !defined(PCBTARANIS)
   lcdInit();
 #endif
 
   stack_paint();
 
+#if defined(GUI)
   g_menuStack[0] = menuMainView;
-#if MENUS_LOCK != 2/*no menus*/
-  g_menuStack[1] = menuModelSelect;
+  #if MENUS_LOCK != 2/*no menus*/
+    g_menuStack[1] = menuModelSelect;
+  #endif
 #endif
 
-#if !defined(PCBTARANIS)
+#if defined(GUI) && !defined(PCBTARANIS)
   lcdSetRefVolt(25);
+#endif
+
+#if defined(PCBTARANIS)
+  displaySplash();
 #endif
 
   sei(); // interrupts needed for telemetryInit and eeReadAll.
@@ -2757,9 +2572,93 @@ int main(void)
   opentxClose();
   lcd_clear() ;
   lcdRefresh() ;
-  pwrOff(); // Only turn power off if necessary
+  boardOff(); // Only turn power off if necessary
   wdt_disable();
   while(1); // never return from main() - there is no code to return back, if any delays occurs in physical power it does dead loop.
 #endif
 }
 #endif // !SIMU
+
+#if defined(PCBTARANIS) && defined(REV9E)
+#define PWR_PRESS_SHUTDOWN             300 // 3s
+
+const pm_uchar bmp_shutdown[] PROGMEM = {
+  #include "../../bitmaps/Taranis/shutdown.lbm"
+};
+
+uint32_t pwr_press_time = 0;
+
+uint32_t pwrPressedDuration()
+{
+  if (pwr_press_time == 0) {
+    return 0;
+  }
+  else {
+    return get_tmr10ms() - pwr_press_time;
+  }
+}
+
+uint32_t pwrCheck()
+{
+  enum PwrCheckState {
+    PWR_CHECK_ON,
+    PWR_CHECK_OFF,
+    PWR_CHECK_PAUSED,
+  };
+
+  static uint8_t pwr_check_state = PWR_CHECK_ON;
+
+  if (pwr_check_state == PWR_CHECK_OFF) {
+    return e_power_off;
+  }
+  else if (pwrPressed()) {
+    if (pwr_check_state == PWR_CHECK_PAUSED) {
+      // nothing
+    }
+    else if (pwr_press_time == 0) {
+      pwr_press_time = get_tmr10ms();
+    }
+    else {
+      if (get_tmr10ms() - pwr_press_time > PWR_PRESS_SHUTDOWN) {
+#if defined(SHUTDOWN_CONFIRMATION)
+        while (1) {
+          lcdRefreshWait();
+          lcd_clear();
+          POPUP_CONFIRMATION("Confirm Shutdown");
+          uint8_t evt = getEvent(false);
+          DISPLAY_WARNING(evt);
+          lcdRefresh();
+          if (s_warning_result == true) {
+            pwr_check_state = PWR_CHECK_OFF;
+            return e_power_off;
+          }
+          else if (!s_warning) {
+            // shutdown has been cancelled
+            pwr_check_state = PWR_CHECK_PAUSED;
+            return e_power_on;
+          }
+        }
+#else
+        haptic.play(15, 3, PLAY_NOW);
+        pwr_check_state = PWR_CHECK_OFF;
+        return e_power_off;
+#endif
+      }
+      else {
+        lcdRefreshWait();
+        unsigned index = pwrPressedDuration() / (PWR_PRESS_SHUTDOWN / 4);
+        lcd_clear();
+        lcd_bmp(76, 2, bmp_shutdown, index*60, 60);
+        lcdRefresh();
+        return e_power_press;
+      }
+    }
+  }
+  else {
+    pwr_check_state = PWR_CHECK_ON;
+    pwr_press_time = 0;
+  }
+
+  return e_power_on;
+}
+#endif

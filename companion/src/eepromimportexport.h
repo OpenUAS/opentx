@@ -17,6 +17,8 @@
 #ifndef eeprom_importexport_h
 #define eeprom_importexport_h
 
+#include "customdebug.h"
+
 #define DIM(arr) (sizeof((arr))/sizeof((arr)[0]))
 
 class DataField {
@@ -104,10 +106,10 @@ class ProxyField: public DataField {
 
 };
 
-template<int N>
-class UnsignedField: public DataField {
+template<class container, int N>
+class BaseUnsignedField: public DataField {
   public:
-    explicit UnsignedField(unsigned int & field):
+    explicit BaseUnsignedField(container & field):
       DataField("Unsigned"),
       field(field),
       min(0),
@@ -115,7 +117,7 @@ class UnsignedField: public DataField {
     {
     }
 
-    UnsignedField(unsigned int & field, const char *name):
+    BaseUnsignedField(container & field, const char *name):
       DataField(name),
       field(field),
       min(0),
@@ -123,7 +125,7 @@ class UnsignedField: public DataField {
     {
     }
 
-    UnsignedField(unsigned int & field, unsigned int min, unsigned int max, const char *name="Unsigned"):
+    BaseUnsignedField(container & field, unsigned int min, unsigned int max, const char *name="Unsigned"):
       DataField(name),
       field(field),
       min(min),
@@ -133,7 +135,7 @@ class UnsignedField: public DataField {
 
     virtual void ExportBits(QBitArray & output)
     {
-      unsigned int value = field;
+      container value = field;
       if (value > max) value = max;
       if (value < min) value = min;
 
@@ -151,6 +153,7 @@ class UnsignedField: public DataField {
         if (input[i])
           field |= (1<<i);
       }
+      eepromImportDebug() << QString("\timported %1<%2>: 0x%3(%4)").arg(name).arg(N).arg(field, 0, 16).arg(field);
     }
 
     virtual unsigned int size()
@@ -159,12 +162,32 @@ class UnsignedField: public DataField {
     }
 
   protected:
-    unsigned int & field;
-    unsigned int min;
-    unsigned int max;
+    container & field;
+    container min;
+    container max;
 
   private:
-    UnsignedField();
+    BaseUnsignedField();
+};
+
+template <int N>
+class UnsignedField : public BaseUnsignedField<unsigned int, N>
+{
+  public:
+    explicit UnsignedField(unsigned int & field):
+      BaseUnsignedField<unsigned int, N>(field)
+    {
+    }
+
+    UnsignedField(unsigned int & field, const char *name):
+      BaseUnsignedField<unsigned int, N>(field, name)
+    {
+    }
+
+    UnsignedField(unsigned int & field, unsigned int min, unsigned int max, const char *name="Unsigned"):
+      BaseUnsignedField<unsigned int, N>(field, min, max, name)
+    {
+    }
 };
 
 template<int N>
@@ -187,6 +210,7 @@ class BoolField: public DataField {
     virtual void ImportBits(QBitArray & input)
     {
       field = input[0] ? true : false;
+      eepromImportDebug() << QString("\timported %1<%2>: 0x%3(%4)").arg(name).arg(N).arg(field, 0, 16).arg(field);
     }
 
     virtual unsigned int size()
@@ -256,6 +280,7 @@ class SignedField: public DataField {
       }
 
       field = (int)value;
+      eepromImportDebug() << QString("\timported %1<%2>: 0x%3(%4)").arg(name).arg(N).arg(field, 0, 16).arg(field);
     }
 
     virtual unsigned int size()
@@ -316,6 +341,7 @@ class CharField: public DataField {
         }
         field[i] = idx;
       }
+      eepromImportDebug() << QString("\timported %1<%2>: '%3'").arg(name).arg(N).arg(field);
     }
 
     virtual unsigned int size()
@@ -373,6 +399,7 @@ class ZCharField: public DataField {
         else
           break;
       }
+      eepromImportDebug() << QString("\timported %1<%2>: '%3'").arg(name).arg(N).arg(field);
     }
 
     virtual unsigned int size()
@@ -398,6 +425,7 @@ class StructField: public DataField {
     }
 
     inline void Append(DataField *field) {
+      //eepromImportDebug() << QString("StructField(%1) appending field: %2").arg(name).arg(field->getName());
       fields.append(field);
     }
 
@@ -415,6 +443,7 @@ class StructField: public DataField {
 
     virtual void ImportBits(QBitArray & input)
     {
+      eepromImportDebug() << QString("\timporting %1[%2]:").arg(name).arg(fields.size());
       int offset = 0;
       foreach(DataField *field, fields) {
         unsigned int size = field->size();
@@ -469,6 +498,7 @@ class TransformedField: public DataField {
 
     virtual void ImportBits(QBitArray & input)
     {
+      eepromImportDebug() << QString("\timporting TransformedField %1:").arg(field.getName());
       field.ImportBits(input);
       afterImport();
     }
@@ -695,6 +725,7 @@ class ConversionField: public TransformedField {
       if (scale) {
         field *= scale;
       }
+      eepromImportDebug() << QString("\timported ConversionField<%1>:").arg(internalField.getName()) << QString(" before: %1, after: %2").arg(_field).arg(field);
     }
 
   protected:

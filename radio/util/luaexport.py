@@ -28,7 +28,7 @@ def checkName(name):
     warning = True
   dups_name.append(name)
   if name != name.lower():
-    print "WARNING:Name not in lower case %s found for constant %s" % (name, CONSTANT_VALUE)
+    print "WARNING: Name not in lower case %s found for constant %s" % (name, CONSTANT_VALUE)
     warning = True
 
 
@@ -36,11 +36,6 @@ def LEXP(name, description):
   # print "LEXP %s, %s" % (name, description)
   checkName(name)
   exports.append( (CONSTANT_VALUE, name, description) )
-
-def LEXP_TELEMETRY(name, description):
-  # print "LEXP %s, %s" % (name, description)
-  checkName(name)
-  exports.append( ("MIXSRC_FIRST_TELEM-1+"+CONSTANT_VALUE, name, description) )
 
 def LEXP_MULTIPLE(nameFormat, descriptionFormat, valuesCount):
   # print "LEXP_MULTIPLE %s, %s, %s" % (nameFormat, descriptionFormat, valuesCount)

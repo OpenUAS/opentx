@@ -36,6 +36,13 @@
 
 #include "../../opentx.h"
 
+const int8_t volumeScale[VOLUME_LEVEL_MAX+1] =
+{
+    0,  1,  2,  3,  5,  9,  13,  17,  22,  27,  33,  40,
+    64, 82, 96, 105, 112, 117, 120, 122, 124, 125, 126, 127
+};
+
+#if !defined(SIMU)
 bool dacIdle = true;
 
 void setSampleRate(uint32_t frequency)
@@ -69,7 +76,7 @@ void dacInit()
   dacTimerInit();
 
   RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN ;           // Enable portA clock
-  configure_pins( 0x0010, PIN_ANALOG | PIN_PORTA ) ;
+  configure_pins( GPIO_Pin_4, PIN_ANALOG | PIN_PORTA ) ;
   RCC->APB1ENR |= RCC_APB1ENR_DACEN ;                             // Enable clock
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN ;                    // Enable DMA1 clock
 
@@ -139,12 +146,13 @@ void audioEnd()
   NVIC_DisableIRQ(DMA1_Stream5_IRQn) ;
 }
 
-#if !defined(SIMU)
 extern "C" void TIM6_DAC_IRQHandler()
 {
-  DAC->CR &= ~DAC_CR_DMAEN1 ;                     // Stop DMA requests
+  DAC->CR &= ~DAC_CR_DMAEN1 ;     // Stop DMA requests
+#if !defined(REV9E)
   DAC->CR &= ~DAC_CR_DMAUDRIE1 ;  // Stop underrun interrupt
-  DAC->SR = DAC_SR_DMAUDR1 ;                      // Write 1 to clear flag
+#endif
+  DAC->SR = DAC_SR_DMAUDR1 ;      // Write 1 to clear flag
 }
 
 extern "C" void DMA1_Stream5_IRQHandler()
@@ -165,96 +173,4 @@ extern "C" void DMA1_Stream5_IRQHandler()
     dacIdle = true;
   }
 }
-#endif
-
-#if 0
-static void Audio_GPIO_Init()
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-
-    /* EnableI2C GPIO clocks */
-    RCC_AHB1PeriphClockCmd(CODEC_I2S_GPIO_CLOCK, ENABLE);//GPIOA C
-
-    /* CODEC_I2S pins configuration: WS, SCK and SD pins -----------------------------*/
-    GPIO_InitStructure.GPIO_Pin = CODEC_I2S_SCK_PIN | CODEC_I2S_SD_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(CODEC_I2S_GPIO, &GPIO_InitStructure);
-
-    GPIO_InitStructure.GPIO_Pin = CODEC_I2S_WS_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(CODEC_I2S_WS_GPIO, &GPIO_InitStructure);
-
-    /* Connect pins to I2S peripheral  */
-    GPIO_PinAFConfig(CODEC_I2S_WS_GPIO, CODEC_I2S_WS_PINSRC, CODEC_I2S_GPIO_AF);
-    GPIO_PinAFConfig(CODEC_I2S_GPIO, CODEC_I2S_SCK_PINSRC, CODEC_I2S_GPIO_AF);
-    GPIO_PinAFConfig(CODEC_I2S_GPIO, CODEC_I2S_SD_PINSRC, CODEC_I2S_GPIO_AF);
-
-#ifdef CODEC_MCLK_ENABLED
-    /* CODEC_I2S pins configuration: MCK pin */
-    GPIO_InitStructure.GPIO_Pin = CODEC_I2S_MCK_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(CODEC_I2S_MCK_GPIO, &GPIO_InitStructure);
-    /* Connect pins to I2S peripheral  */
-    GPIO_PinAFConfig(CODEC_I2S_MCK_GPIO, CODEC_I2S_MCK_PINSRC, CODEC_I2S_GPIO_AF);
-#endif /* CODEC_MCLK_ENABLED */
-
-/*CODEC_I2S_MUTE & CODEC_I2S_FLT GPIO CONFIG*/
-    GPIO_InitStructure.GPIO_Pin = CODEC_I2S_MUTE;// | CODEC_I2S_FLT;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(CODEC_I2S_GPIO, &GPIO_InitStructure);
-    GPIO_SetBits(CODEC_I2S_GPIO,CODEC_I2S_MUTE);
-   // GPIO_SetBits(CODEC_I2S_CTL_GPIO,CODEC_I2S_FLT);
-}
-
-void audioInit()
-{
-    I2S_InitTypeDef I2S_InitStructure;
-
-    Audio_GPIO_Init();
-
-    /*CONFIG the I2S_RCC ,MUST before enabling the I2S APB clock*/
-    //PLLI2SN 302,PLLI2SR 2,I2SDIV 53,I2SODD 1,FS 44.1KHZ,16bit,Error 0.0011%
-    RCC_PLLI2SConfig(302,2);
-    RCC_PLLI2SCmd(ENABLE);
-    RCC_I2SCLKConfig(RCC_I2S2CLKSource_PLLI2S);
-
-    /* Enable the CODEC_I2S peripheral clock */
-    RCC_APB1PeriphClockCmd(CODEC_I2S_CLK, ENABLE);
-    /* CODEC_I2S peripheral configuration */
-    SPI_I2S_DeInit(CODEC_I2S);
-    I2S_InitStructure.I2S_AudioFreq = AudioFreq;
-    I2S_InitStructure.I2S_Standard = I2S_Standard_Phillips;
-    I2S_InitStructure.I2S_DataFormat = I2S_DataFormat_16b;
-    I2S_InitStructure.I2S_CPOL = I2S_CPOL_Low;//clk 0 when idle state
-    I2S_InitStructure.I2S_Mode = I2S_Mode_MasterTx;
-#ifdef CODEC_MCLK_ENABLED
-    I2S_InitStructure.I2S_MCLKOutput = I2S_MCLKOutput_Enable;
-#elif defined(CODEC_MCLK_DISABLED)
-    I2S_InitStructure.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
-#else
-    #error "No selection for the MCLK output has been defined !"
-#endif /* CODEC_MCLK_ENABLED */
-
-    /* Initialize the I2S peripheral with the structure above */
-    I2S_Init(CODEC_I2S, &I2S_InitStructure);
-    I2S_Cmd(CODEC_I2S, ENABLE);
-    //interrupt
-#ifdef CODEC_USE_INT
-    SPI_I2S_ITConfig(CODEC_I2S,SPI_I2S_IT_TXE,ENABLE);
-#elif defined(CODEC_USE_DMA)
-#error "DMA is not initialized"
-#endif
-}
-#endif
+#endif  // #if !defined(SIMU)

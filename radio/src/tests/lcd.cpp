@@ -174,6 +174,13 @@ TEST(Lcd, Line_Wrap)
   EXPECT_TRUE(checkScreenshot("line_wrap"));
 }
 
+TEST(Lcd, DblsizeBottomRight)
+{
+  lcd_clear();
+  lcd_putsAtt(LCD_W-20, LCD_H-16, "TEST", DBLSIZE);
+  EXPECT_TRUE(checkScreenshot("dblsize_bottom_right"));
+}
+
 #if defined(CPUARM)
 TEST(Lcd, Smlsize_putsStrIdx)
 {
@@ -208,7 +215,7 @@ TEST(Lcd, Smlsize)
   lcd_clear();
   lcd_putsAtt(0, 0, "TESTgy,", SMLSIZE);
   lcd_putsAtt(10, 22, "TESTgy,", SMLSIZE|INVERS);
-  lcd_filled_rect(8, 40, 100, 20);
+  drawFilledRect(8, 40, 100, 20);
   lcd_putsAtt(10, 42, "TESTgy,", SMLSIZE);
 
   bool invert = false;
@@ -225,7 +232,7 @@ TEST(Lcd, Stdsize)
   lcd_clear();
   lcd_putsAtt(0, 0, "TEST", 0);
   lcd_putsAtt(10, 22, "TEST", INVERS);
-  lcd_filled_rect(8, 40, 100, 20);
+  drawFilledRect(8, 40, 100, 20);
   lcd_putsAtt(10, 42, "TEST", 0);
 
   bool invert = false;
@@ -242,7 +249,7 @@ TEST(Lcd, Midsize)
   lcd_clear();
   lcd_putsAtt(0, 0, "TEST", MIDSIZE);
   lcd_putsAtt(10, 22, "TEST", MIDSIZE|INVERS);
-  lcd_filled_rect(8, 40, 100, 20);
+  drawFilledRect(8, 40, 100, 20);
   lcd_putsAtt(10, 42, "TEST", MIDSIZE);
 
   bool invert = false;
@@ -259,7 +266,7 @@ TEST(Lcd, Dblsize)
   lcd_clear();
   lcd_putsAtt(2, 10, "TST", DBLSIZE);
   lcd_putsAtt(42, 10, "TST", DBLSIZE|INVERS);
-  lcd_filled_rect(80, 8, 46, 24);
+  drawFilledRect(80, 8, 46, 24);
   lcd_putsAtt(82, 10, "TST", DBLSIZE);
 
   bool invert = false;
@@ -380,6 +387,12 @@ TEST(Lcd, lcd_bmpLoadAndDisplay)
     bitmap.leakCheck();
     lcd_bmp(70, 2, bitmap.buffer());
   }
+  {
+    TestBuffer<1000>  bitmap(BITMAP_BUFFER_SIZE(20, 20));
+    EXPECT_EQ(bmpLoad(bitmap.buffer(), "./tests/4b_20x20.bmp", 20, 20), (char *)0);
+    bitmap.leakCheck();
+    lcd_bmp(120, 2, bitmap.buffer());
+  }
   EXPECT_TRUE(checkScreenshot("lcd_bmpLoadAndDisplay"));
 
   // Test various bad BMP files, they should not display
@@ -393,5 +406,72 @@ TEST(Lcd, lcd_bmpLoadAndDisplay)
     EXPECT_EQ(bmpLoad(bitmap.buffer(), "./tests/1b_39x32.bmp", 10, 10), STR_INCOMPATIBLE) << "to small buffer";
     bitmap.leakCheck();
   }
+}
+#endif
+
+#if defined(PCBTARANIS)
+TEST(Lcd, lcd_line)
+{
+  int start, length, xOffset;
+  uint8_t pattern; 
+
+  lcd_clear();
+
+  start = 5;
+  pattern = SOLID; 
+  length = 40;
+  xOffset = 0;
+  lcd_line(start+(length>0?1:-1)+xOffset, start, start+(length>0?1:-1)+xOffset+length, start, pattern, 0);
+  lcd_line(start+xOffset, start+(length>0?1:-1), start+xOffset, start+(length>0?1:-1)+length, pattern, 0);
+
+  start = 10;
+  pattern = DOTTED; 
+  length = 40;
+  xOffset = 0;
+  lcd_line(start+(length>0?1:-1)+xOffset, start, start+(length>0?1:-1)+xOffset+length, start, pattern, 0);
+  lcd_line(start+xOffset, start+(length>0?1:-1), start+xOffset, start+(length>0?1:-1)+length, pattern, 0);
+
+  start = 55;
+  pattern = SOLID; 
+  length = -40;
+  xOffset = 80;
+  lcd_line(start+(length>0?1:-1)+xOffset, start, start+(length>0?1:-1)+xOffset+length, start, pattern, 0);
+  lcd_line(start+xOffset, start+(length>0?1:-1), start+xOffset, start+(length>0?1:-1)+length, pattern, 0);
+
+  start = 50;
+  pattern = DOTTED; 
+  length = -40;
+  xOffset = 80;
+  lcd_line(start+(length>0?1:-1)+xOffset, start, start+(length>0?1:-1)+xOffset+length, start, pattern, 0);
+  lcd_line(start+xOffset, start+(length>0?1:-1), start+xOffset, start+(length>0?1:-1)+length, pattern, 0);
+
+  // 45 deg lines
+  lcd_line( 35, 40, 45, 40, SOLID, FORCE );
+  lcd_line( 40, 35, 40, 45, SOLID, FORCE );
+
+  lcd_line( 20, 40, 40, 20, SOLID, FORCE );
+  lcd_line( 40, 20, 60, 40, SOLID, FORCE );
+  lcd_line( 60, 40, 40, 60, SOLID, FORCE );
+  lcd_line( 40, 60, 20, 40, SOLID, FORCE );
+
+  lcd_line( 31, 39, 39, 31, SOLID, FORCE );
+  lcd_line( 41, 31, 49, 39, SOLID, FORCE );
+  lcd_line( 49, 41, 41, 49, SOLID, FORCE );
+  lcd_line( 39, 49, 31, 41, SOLID, FORCE );
+
+  // slanted lines
+  lcd_line( 150, 10, 190, 10, SOLID, FORCE );
+  lcd_line( 150, 10, 190, 20, SOLID, FORCE );
+  lcd_line( 150, 10, 190, 30, SOLID, FORCE );
+  lcd_line( 150, 10, 190, 40, SOLID, FORCE );
+  lcd_line( 150, 10, 190, 50, SOLID, FORCE );
+
+  lcd_line( 150, 10, 190, 50, SOLID, FORCE );
+  lcd_line( 150, 10, 180, 50, SOLID, FORCE );
+  lcd_line( 150, 10, 170, 50, SOLID, FORCE );
+  lcd_line( 150, 10, 160, 50, SOLID, FORCE );
+  lcd_line( 150, 10, 150, 50, SOLID, FORCE );
+
+  EXPECT_TRUE(checkScreenshot("lcd_line"));
 }
 #endif

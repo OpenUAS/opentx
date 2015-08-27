@@ -48,6 +48,10 @@
 #include <QSplashScreen>
 #include <QThread>
 #include <iostream>
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  #include <SDL.h>
+  #undef main
+#endif
 #include "mainwindow.h"
 #include "eeprominterface.h"
 #include "appdata.h"
@@ -95,9 +99,23 @@ int main(int argc, char *argv[])
   app.installTranslator(&qtTranslator);
 
   QTextCodec::setCodecForCStrings(QTextCodec::codecForName("UTF-8"));
-  
+
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  uint32_t sdlFlags = 0;
+  #ifdef JOYSTICKS
+    sdlFlags |= SDL_INIT_JOYSTICK;
+  #endif
+  #ifdef SIMU_AUDIO
+    sdlFlags |= SDL_INIT_AUDIO;
+  #endif
+  if (SDL_Init(sdlFlags) < 0) {
+    fprintf(stderr, "ERROR: couldn't initialize SDL: %s\n", SDL_GetError());
+  }
+#endif
+
   registerEEpromInterfaces();
   registerOpenTxFirmwares();
+  registerSimulators();
 
   if (g.profile[g.id()].fwType().isEmpty()){
     g.profile[g.id()].fwType(default_firmware_variant->getId());
@@ -105,10 +123,10 @@ int main(int argc, char *argv[])
   }
 
   QString splashScreen;
-  if ( g.profile[g.id()].fwType().contains("taranis"))     splashScreen = ":/images/splasht.png";
-  else if ( g.profile[g.id()].fwType().contains("9xrpro")) splashScreen = ":/images/splashp.png";
-  else if ( g.profile[g.id()].fwType().contains("9xr"))    splashScreen = ":/images/splashr.png";
-  else  splashScreen = ":/images/splash.png";
+  if ( g.profile[g.id()].fwType().contains("taranis"))     splashScreen = ":/images/splash-taranis.png";
+  else if ( g.profile[g.id()].fwType().contains("9xrpro")) splashScreen = ":/images/splash-9xrpro.png";
+  else if ( g.profile[g.id()].fwType().contains("9xr"))    splashScreen = ":/images/splash-9xr.png";
+  else  splashScreen = ":/images/splash-9x.png";
 
   QPixmap pixmap = QPixmap(splashScreen);
   QSplashScreen *splash = new QSplashScreen(pixmap);
@@ -132,6 +150,10 @@ int main(int argc, char *argv[])
 
   unregisterFirmwares();
   unregisterEEpromInterfaces();
+
+#if defined(JOYSTICKS) || defined(SIMU_AUDIO)
+  SDL_Quit();
+#endif
 
   return result;
 }

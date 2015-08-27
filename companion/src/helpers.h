@@ -26,6 +26,8 @@ extern const QColor colors[C9X_MAX_CURVES];
 #define TRIM_MODE_NONE  0x1F  // 0b11111
 
 void populateGvSourceCB(QComboBox *b, int value);
+void populateFileComboBox(QComboBox * b, const QSet<QString> & set, const QString & current);
+void getFileComboBoxValue(QComboBox * b, char * dest, int length);
 void populateRotEncCB(QComboBox *b, int value, int renumber);
 
 QString getTheme();
@@ -98,33 +100,25 @@ void populateSwitchCB(QComboBox *b, const RawSwitch & value, const GeneralSettin
 
 void populatePhasesCB(QComboBox *b, int value);
 void populateGvarUseCB(QComboBox *b, unsigned int phase);
-QString getProtocolStr(const int proto);
-QString getPhasesStr(unsigned int phases, ModelData * model);
 
-#define POPULATE_SOURCES        (1<<0)
-#define POPULATE_TRIMS          (1<<1)
-#define POPULATE_SWITCHES       (1<<2)
-#define POPULATE_GVARS          (1<<3)
-#define POPULATE_TELEMETRY      (1<<4)
-#define POPULATE_TELEMETRYEXT   (1<<5)
-#define POPULATE_VIRTUAL_INPUTS (1<<6)
-#define POPULATE_SCRIPT_OUTPUTS (1<<7)
+#define POPULATE_NONE           (1<<0)
+#define POPULATE_SOURCES        (1<<1)
+#define POPULATE_TRIMS          (1<<2)
+#define POPULATE_SWITCHES       (1<<3)
+#define POPULATE_GVARS          (1<<4)
+#define POPULATE_TELEMETRY      (1<<5)
+#define POPULATE_TELEMETRYEXT   (1<<6)
+#define POPULATE_VIRTUAL_INPUTS (1<<7)
+#define POPULATE_SCRIPT_OUTPUTS (1<<8)
 
 #define GVARS_VARIANT 0x0001
 #define FRSKY_VARIANT 0x0002
 
 // void populateGVarCB(QComboBox *b, int value, int min, int max,int pgvars=5); //TODO: Clean Up
 void populateGVCB(QComboBox *b, int value);
-void populateSourceCB(QComboBox *b, const RawSource &source, const ModelData * model, unsigned int flags);
-QString getPhaseName(int val, const char * phasename=NULL);
-QString getInputStr(ModelData * model, int index);
+void populateSourceCB(QComboBox *b, const RawSource &source, const GeneralSettings generalSettings, const ModelData * model, unsigned int flags);
 QString image2qstring(QImage image);
 int findmult(float value, float base);
-
-QString getTrimInc(ModelData * g_model);
-QString getTimerStr(TimerData & timer);
-QString getProtocol(ModelData * g_model);
-QString getCenterBeepStr(ModelData * g_model);
 
 /* FrSky helpers */
 QString getFrSkyAlarmType(int alarm);
@@ -135,10 +129,30 @@ QString getFrSkySrc(int index);
 
 void startSimulation(QWidget * parent, RadioData & radioData, int modelIdx);
 
+template <class T>
+QVector<T> findWidgets(QObject * object, const QString & name)
+{
+  QVector<T> result;
+  QRegExp rx(name.arg("([0-9]+)"));
+  QList<T> children = object->findChildren<T>();
+  foreach(T child, children) {
+    int pos = rx.indexIn(child->objectName());
+    if (pos >= 0) {
+      QStringList list = rx.capturedTexts();
+      int index = list[1].toInt();
+      if (result.size() <= index) {
+        result.resize(index+1);
+      }
+      result[index] = child;
+    }
+  }
+  return result;
+}
+
 // Format a pixmap to fit on the radio using a specific firmware
 QPixmap makePixMap( QImage image, QString firmwareType );
 
-int version2index(QString version);
+int version2index(const QString & version);
 QString index2version(int index);
 
 class QTimeS : public QTime
@@ -152,8 +166,39 @@ class QTimeS : public QTime
 int qunlink(const QString & fileName);
 
 QString generateProcessUniqueTempFileName(const QString & fileName);
+bool isTempFileName(const QString & fileName);
 
 QString getSoundsPath(const GeneralSettings &generalSettings);
 QSet<QString> getFilesSet(const QString &path, const QStringList &filter, int maxLen);
+
+bool caseInsensitiveLessThan(const QString &s1, const QString &s2);
+
+
+class GpsGlitchFilter
+{
+public:
+  GpsGlitchFilter() : lastValid(false), glitchCount(0) {};
+  bool isGlitch(double latitude, double longitude);
+
+private:
+  bool lastValid;
+  int glitchCount;
+  double lastLat;
+  double lastLon;
+};
+
+class GpsLatLonFilter
+{
+public:
+  GpsLatLonFilter() {};
+  bool isValid(const QString & latitude, const QString & longitude);
+  
+private:
+  QString lastLat;
+  QString lastLon;
+};
+
+double toDecimalCoordinate(const QString & value);
+QStringList extractLatLon(const QString & position);
 
 #endif // HELPERS_H

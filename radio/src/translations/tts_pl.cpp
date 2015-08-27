@@ -50,7 +50,7 @@ enum PolishPrompts {
   PL_PROMPT_MILLIAMPS = PL_PROMPT_UNITS_BASE+(UNIT_MILLIAMPS*4),
   PL_PROMPT_MAH = PL_PROMPT_UNITS_BASE+(UNIT_MAH*4),
   PL_PROMPT_WATTS = PL_PROMPT_UNITS_BASE+(UNIT_WATTS*4),
-  PL_PROMPT_DB = PL_PROMPT_UNITS_BASE+(UNIT_DBM*4),
+  PL_PROMPT_DB = PL_PROMPT_UNITS_BASE+(UNIT_DB*4),
   PL_PROMPT_FEET = PL_PROMPT_UNITS_BASE+(UNIT_FEET*4),
   PL_PROMPT_KTS = PL_PROMPT_UNITS_BASE+(UNIT_KTS*4),
   PL_PROMPT_HOURS = PL_PROMPT_UNITS_BASE+(UNIT_HOURS*4),
@@ -58,6 +58,11 @@ enum PolishPrompts {
   PL_PROMPT_SECONDS = PL_PROMPT_UNITS_BASE+(UNIT_SECONDS*4),
   PL_PROMPT_RPMS = PL_PROMPT_UNITS_BASE+(UNIT_RPMS*4),
   PL_PROMPT_G = PL_PROMPT_UNITS_BASE+(UNIT_G*4),
+#if defined(CPUARM)
+  PL_PROMPT_MILLILITERS = PL_PROMPT_UNITS_BASE+(UNIT_MILLILITERS*4),
+  PL_PROMPT_FLOZ = PL_PROMPT_UNITS_BASE+(UNIT_FLOZ*4),
+  PL_PROMPT_FEET_PER_SECOND = PL_PROMPT_UNITS_BASE+(UNIT_FEET_PER_SECOND*4),
+#endif
 };
 
 #if defined(VOICE)
@@ -83,7 +88,7 @@ I18N_PLAY_FUNCTION(pl, pushUnitPrompt, int16_t number, uint8_t unitprompt)
     test_2 =number % 10;
     int ten=0;
     ten=(number - (number % 10))/10;
-    if ((test_2 > 1 && test_2 < 5) && ten >2)
+    if ((test_2 > 1 && test_2 < 5) && ten >=2)
 	PUSH_NUMBER_PROMPT(unitprompt+1);
     else
 	PUSH_NUMBER_PROMPT(unitprompt+2);
@@ -144,11 +149,16 @@ I18N_PLAY_FUNCTION(pl, playNumber, getvalue_t number, uint8_t unit, uint8_t att)
   switch(unit) {
     case 0:
       break;
+// ft/s
+    case 6:
+// mph
+    case 8:
+// feet
     case 10:
-    case 13:
-    case 15:
-    case 16:
-    case 17:
+//mAh
+    case 14:
+//flOz
+    case 21:
       att = ZENSKI;
       break;
     case 100:

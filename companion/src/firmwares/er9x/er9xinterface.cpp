@@ -17,7 +17,7 @@
 #include <iostream>
 #include "er9xinterface.h"
 #include "er9xeeprom.h"
-#include "er9xsimulator.h"
+#include "simulator/er9xsimulator.h"
 #include "file.h"
 #include "appdata.h"
 
@@ -190,12 +190,12 @@ int Er9xInterface::save(uint8_t *eeprom, RadioData &radioData, uint32_t variant,
   return 0;
 }
 
-int Er9xInterface::getSize(ModelData &model)
+int Er9xInterface::getSize(const ModelData &model)
 {
   return 0;
 }
 
-int Er9xInterface::getSize(GeneralSettings &settings)
+int Er9xInterface::getSize(const GeneralSettings &settings)
 {
   return 0;
 }

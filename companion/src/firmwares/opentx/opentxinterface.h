@@ -13,12 +13,11 @@
  * GNU General Public License for more details.
  *
  */
-#ifndef open9x_interface_h
-#define open9x_interface_h
+
+#ifndef opentx_interface_h
+#define opentx_interface_h
 
 #include "eeprominterface.h"
-
-#define OPENTX_FIRMWARE_DOWNLOADS    "http://downloads-20.open-tx.org/firmware"
 
 class RleFile;
 
@@ -42,9 +41,9 @@ class OpenTxEepromInterface : public EEPROMInterface
 
     virtual int save(uint8_t *eeprom, RadioData &radioData, uint32_t variant=0, uint8_t version=0);
 
-    virtual int getSize(ModelData &);
+    virtual int getSize(const ModelData &);
 
-    virtual int getSize(GeneralSettings &);
+    virtual int getSize(const GeneralSettings &);
     
     virtual int isAvailable(Protocol proto, int port=0);
     
@@ -88,26 +87,28 @@ class OpenTxFirmware: public Firmware {
       Firmware(id, name, board, new OpenTxEepromInterface(board))
     {
       addLanguage("en");
+      addLanguage("cz");
+      addLanguage("de");
+      addLanguage("es");
       addLanguage("fr");
       addLanguage("it");
-      addLanguage("de");
-      addLanguage("se");
-      addLanguage("cz");
-      addLanguage("es");
+      addLanguage("nl");
       addLanguage("pl");
       addLanguage("pt");
+      addLanguage("se");
 
       addTTSLanguage("en");
-      addTTSLanguage("fr");
-      addTTSLanguage("it");
-      addTTSLanguage("de");
-      addTTSLanguage("se");
       addTTSLanguage("cz");
-      addTTSLanguage("sk");
+      addTTSLanguage("de");
+      addTTSLanguage("es");
+      addTTSLanguage("fr");
+      addTTSLanguage("hu");
+      addTTSLanguage("it");
+      addTTSLanguage("nl");
       addTTSLanguage("pl");
       addTTSLanguage("pt");
-      addTTSLanguage("es");
-      addTTSLanguage("hu");
+      addTTSLanguage("se");
+      addTTSLanguage("sk");
     }
 
     virtual Firmware * getFirmwareVariant(const QString & id);
@@ -121,9 +122,11 @@ class OpenTxFirmware: public Firmware {
     virtual int getCapability(const Capability);
 
     virtual bool isTelemetrySourceAvailable(int source);
-
-    virtual SimulatorInterface * getSimulator();
     
+  protected:
+
+    QString getFirmwareBaseUrl();
+
 };
 
 void registerOpenTxFirmwares();

@@ -39,73 +39,94 @@
 
 void pwrInit()
 {
+  // if any changes are done to the PWR PIN or pwrOn() function
+  // then the same changes must be done in _bootStart()
+
   GPIO_InitTypeDef GPIO_InitStructure;
-  /* GPIOC GPIOD clock enable */
-  RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOPWR, ENABLE);
-
-  /* GPIO  Configuration*/
-  GPIO_InitStructure.GPIO_Pin = PIN_MCU_PWR;
+  GPIO_InitStructure.GPIO_Pin = PWR_GPIO_PIN_ON;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
   GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
   GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
   GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-  GPIO_Init(GPIOPWR, &GPIO_InitStructure);
+  GPIO_Init(PWR_GPIO, &GPIO_InitStructure);
 
-  GPIO_InitStructure.GPIO_Pin = PIN_PWR_STATUS;
+  GPIO_InitStructure.GPIO_Pin = PWR_GPIO_PIN_SWITCH;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-  GPIO_Init(GPIOPWR, &GPIO_InitStructure);
+  GPIO_Init(PWR_GPIO, &GPIO_InitStructure);
   
-  GPIO_InitStructure.GPIO_Pin = PIN_PWR_LED;
+  GPIO_InitStructure.GPIO_Pin = PWR_GPIO_PIN_LED;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-  GPIO_Init(GPIOPWRLED, &GPIO_InitStructure);
+  GPIO_Init(PWR_GPIO_LED, &GPIO_InitStructure);
 
-#if !defined(REV3)  
-  GPIO_ResetBits(GPIO_INT_RF_PWR, PIN_INT_RF_PWR);
-  GPIO_InitStructure.GPIO_Pin = PIN_INT_RF_PWR;
+  GPIO_ResetBits(INTMODULE_GPIO_PWR, INTMODULE_GPIO_PIN_PWR);
+  GPIO_InitStructure.GPIO_Pin = INTMODULE_GPIO_PIN_PWR;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-  GPIO_Init(GPIO_INT_RF_PWR, &GPIO_InitStructure);
+  GPIO_Init(INTMODULE_GPIO_PWR, &GPIO_InitStructure);
   
-  GPIO_ResetBits(GPIO_EXT_RF_PWR, PIN_EXT_RF_PWR);
-  GPIO_InitStructure.GPIO_Pin = PIN_EXT_RF_PWR;
+  GPIO_ResetBits(EXTMODULE_GPIO_PWR, EXTMODULE_GPIO_PIN_PWR);
+  GPIO_InitStructure.GPIO_Pin = EXTMODULE_GPIO_PIN_PWR;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-  GPIO_Init(GPIO_EXT_RF_PWR, &GPIO_InitStructure);
+  GPIO_Init(EXTMODULE_GPIO_PWR, &GPIO_InitStructure);
   
-  GPIO_InitStructure.GPIO_Pin = PIN_TRNDET;
+  GPIO_InitStructure.GPIO_Pin = TRAINER_GPIO_PIN_DETECT;
   GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN;
-  GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-  GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-  GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-  GPIO_Init(GPIOTRNDET, &GPIO_InitStructure);
-#endif
+  GPIO_Init(TRAINER_GPIO_DETECT, &GPIO_InitStructure);
 
-  // Soft power ON
-  GPIO_SetBits(GPIOPWR, PIN_MCU_PWR);
+  pwrOn();
+}
+
+void pwrOn()
+{
+  GPIO_SetBits(PWR_GPIO, PWR_GPIO_PIN_ON);
 }
 
 void pwrOff()
 {
-  GPIO_ResetBits(GPIOPWR, PIN_MCU_PWR);
+  GPIO_ResetBits(PWR_GPIO, PWR_GPIO_PIN_ON);
+
+  // disable interrupts
+ __disable_irq();
+
+
+#if defined(REV9E)
+  // 9E needs watchdog reset because CPU is still running while 
+  // the power key is held pressed by the user.
+  // The power key should be released by now, but we must make sure
+  while (pwrPressed()) {
+    wdt_reset();
+  }
+  // Put the CPU into sleep to reduce the consumption,
+  // it might help with the RTC reset issue
+  PWR->CR |= PWR_CR_CWUF;
+  /* Select STANDBY mode */
+  PWR->CR |= PWR_CR_PDDS;
+  /* Set SLEEPDEEP bit of Cortex System Control Register */
+  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+  /* Request Wait For Event */
+  __WFE();
+#endif
+
+  while(1) {
+    wdt_reset();
+  }
+
+  //this function must not return!
 }
 
-// TODO enums should be UPPERCASE
+#if defined(REV9E)
+uint32_t pwrPressed()
+{
+  return GPIO_ReadInputDataBit(PWR_GPIO, PWR_GPIO_PIN_SWITCH) == Bit_RESET;
+}
+#endif
+
+#if !defined(REV9E)
 uint32_t pwrCheck()
 {
 #if defined(SIMU)
   return e_power_on;
 #else
-  if (GPIO_ReadInputDataBit(GPIOPWR, PIN_PWR_STATUS) == Bit_RESET)
+  if (GPIO_ReadInputDataBit(PWR_GPIO, PWR_GPIO_PIN_SWITCH) == Bit_RESET)
     return e_power_on;
   else if (usbPlugged())
     return e_power_usb;
@@ -113,3 +134,4 @@ uint32_t pwrCheck()
     return e_power_off;
 #endif
 }
+#endif

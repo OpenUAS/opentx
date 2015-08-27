@@ -35,6 +35,7 @@
  */
 
 #include "opentx.h"
+#include "timers.h"
 
 CustomFunctionsContext modelFunctionsContext = { 0 };
 
@@ -59,6 +60,9 @@ void testFunc()
 PLAY_FUNCTION(playValue, source_t idx)
 {
   if (IS_FAI_FORBIDDEN(idx))
+    return;
+
+  if (idx == MIXSRC_NONE)
     return;
 
   getvalue_t val = getValue(idx);
@@ -86,7 +90,7 @@ PLAY_FUNCTION(playValue, source_t idx)
         }
       }
     }
-    PLAY_NUMBER(val, 1+telemetrySensor.unit, attr);
+    PLAY_NUMBER(val, telemetrySensor.unit == UNIT_CELLS ? UNIT_VOLTS : telemetrySensor.unit, attr);
   }
   else if (idx >= MIXSRC_FIRST_TIMER && idx <= MIXSRC_LAST_TIMER) {
     PLAY_DURATION(val, 0);
@@ -95,7 +99,7 @@ PLAY_FUNCTION(playValue, source_t idx)
     PLAY_DURATION(val*60, PLAY_TIME);
   }
   else if (idx == MIXSRC_TX_VOLTAGE) {
-    PLAY_NUMBER(val, 1+UNIT_VOLTS, PREC1);
+    PLAY_NUMBER(val, UNIT_VOLTS, PREC1);
   }
   else {
     if (idx <= MIXSRC_LAST_CH) {
@@ -115,7 +119,7 @@ PLAY_FUNCTION(playValue, source_t idx)
 #if defined(FRSKY)
     case MIXSRC_FIRST_TELEM+TELEM_RSSI_TX-1:
     case MIXSRC_FIRST_TELEM+TELEM_RSSI_RX-1:
-      PLAY_NUMBER(val, 1+UNIT_DBM, 0);
+      PLAY_NUMBER(val, 1+UNIT_DB, 0);
       break;
     case MIXSRC_FIRST_TELEM+TELEM_MIN_A1-1:
     case MIXSRC_FIRST_TELEM+TELEM_MIN_A2-1:
@@ -256,6 +260,13 @@ void evalFunctions()
   MASK_FUNC_TYPE newActiveFunctions  = 0;
   MASK_CFN_TYPE  newActiveSwitches = 0;
 
+#if defined(CPUARM)
+  uint8_t playFirstIndex = (functions == g_model.customFn ? 1 : 1+NUM_CFN);
+  #define PLAY_INDEX   (i+playFirstIndex)
+#else
+  #define PLAY_INDEX   (i+1)
+#endif
+
 #if defined(ROTARY_ENCODERS) && defined(GVARS)
   static rotenc_t rePreviousValues[ROTARY_ENCODERS];
 #endif
@@ -311,6 +322,7 @@ void evalFunctions()
           case FUNC_INSTANT_TRIM:
             newActiveFunctions |= (1 << FUNCTION_INSTANT_TRIM);
             if (!isFunctionActive(FUNCTION_INSTANT_TRIM)) {
+#if defined(GUI)
               if (g_menuStack[0] == menuMainView
 #if defined(FRSKY)
                 || g_menuStack[0] == menuTelemetryFrsky
@@ -319,7 +331,9 @@ void evalFunctions()
                 || g_menuStack[0] == menuMainViewChannelsMonitor
                 || g_menuStack[0] == menuChannelsView
 #endif
-              ) {
+              )
+#endif
+              {
                 instantTrim();
               }
             }
@@ -351,23 +365,42 @@ void evalFunctions()
                 break;
 #endif
             }
+#if defined(CPUARM)
+            if (CFN_PARAM(cfn)>=FUNC_RESET_PARAM_FIRST_TELEM) {
+              TelemetryItem * telemetryItem = & telemetryItems[CFN_PARAM(cfn)-FUNC_RESET_PARAM_FIRST_TELEM];
+              telemetryItem->clear();
+            }
+#endif
             break;
 
 #if defined(CPUARM)
           case FUNC_SET_TIMER:
           {
-            TimerState & timerState = timersStates[CFN_TIMER_INDEX(cfn)];
-            timerState.state = TMR_OFF; // is changed to RUNNING dep from mode
-            timerState.val = CFN_PARAM(cfn);
-            timerState.val_10ms = 0 ;
+            timerSet(CFN_TIMER_INDEX(cfn), CFN_PARAM(cfn));
             break;
+          }
+#endif
+
+#if defined(CPUARM)
+          case FUNC_SET_FAILSAFE:
+          {
+            unsigned int moduleIndex = CFN_PARAM(cfn);
+            if (moduleIndex < NUM_MODULES) {
+              for (int ch=0; ch<NUM_CHNOUT; ch++) {
+                if (ch < g_model.moduleData[moduleIndex].channelsStart || ch >= NUM_CHANNELS(moduleIndex) + g_model.moduleData[moduleIndex].channelsStart) {
+                  g_model.moduleData[moduleIndex].failsafeChannels[ch] = 0;
+                }
+                else if (g_model.moduleData[moduleIndex].failsafeChannels[ch] < FAILSAFE_CHANNEL_HOLD) {
+                  g_model.moduleData[moduleIndex].failsafeChannels[ch] = channelOutputs[ch];
+                }
+              }
+            }
           }
 #endif
 
 #if defined(DANGEROUS_MODULE_FUNCTIONS)
           case FUNC_RANGECHECK:
           case FUNC_BIND:
-          case FUNC_MODULE_OFF:
           {
             unsigned int moduleIndex = CFN_PARAM(cfn);
             if (moduleIndex < NUM_MODULES) {
@@ -434,13 +467,13 @@ void evalFunctions()
               functionsContext.lastFunctionTime[i] = tmr10ms;
             }
             if (!functionsContext.lastFunctionTime[i] || (repeatParam && repeatParam!=CFN_PLAY_REPEAT_NOSTART && (signed)(tmr10ms-functionsContext.lastFunctionTime[i])>=100*repeatParam)) {
-              if (!IS_PLAYING(i+1)) {
+              if (!IS_PLAYING(PLAY_INDEX)) {
                 functionsContext.lastFunctionTime[i] = tmr10ms;
                 if (CFN_FUNC(cfn) == FUNC_PLAY_SOUND) {
                   AUDIO_PLAY(AU_FRSKY_FIRST+CFN_PARAM(cfn));
                 }
                 else if (CFN_FUNC(cfn) == FUNC_PLAY_VALUE) {
-                  PLAY_VALUE(CFN_PARAM(cfn), i+1);
+                  PLAY_VALUE(CFN_PARAM(cfn), PLAY_INDEX);
                 }
 #if defined(HAPTIC)
                 else if (CFN_FUNC(cfn) == FUNC_HAPTIC) {
@@ -448,7 +481,7 @@ void evalFunctions()
                 }
 #endif
                 else {
-                  playCustomFunctionFile(cfn, i+1);
+                  playCustomFunctionFile(cfn, PLAY_INDEX);
                 }
               }
             }
@@ -456,9 +489,11 @@ void evalFunctions()
           }
 
           case FUNC_BACKGND_MUSIC:
-            newActiveFunctions |= (1 << FUNCTION_BACKGND_MUSIC);
-            if (!IS_PLAYING(i+1)) {
-              playCustomFunctionFile(cfn, i+1);
+            if (!(newActiveFunctions & (1 << FUNCTION_BACKGND_MUSIC))) {
+              newActiveFunctions |= (1 << FUNCTION_BACKGND_MUSIC);
+              if (!IS_PLAYING(PLAY_INDEX)) {
+                playCustomFunctionFile(cfn, PLAY_INDEX);
+              }
             }
             break;
 
@@ -481,14 +516,14 @@ void evalFunctions()
                 AUDIO_PLAY(AU_FRSKY_FIRST+param);
               }
               else if (CFN_FUNC(cfn) == FUNC_PLAY_VALUE) {
-                PLAY_VALUE(param, i+1);
+                PLAY_VALUE(param, PLAY_INDEX);
               }
               else {
 #if defined(GVARS)
                 if (CFN_FUNC(cfn) == FUNC_PLAY_TRACK && param > 250)
                   param = GVAR_VALUE(param-251, getGVarFlightPhase(mixerCurrentFlightMode, param-251));
 #endif
-                PUSH_CUSTOM_PROMPT(active ? param : param+1, i+1);
+                PUSH_CUSTOM_PROMPT(active ? param : param+1, PLAY_INDEX);
               }
             }
             if (!active) {
@@ -542,6 +577,14 @@ void evalFunctions()
             newActiveFunctions |= (1 << FUNCTION_BACKLIGHT);
             break;
 
+#if defined(PCBTARANIS)
+          case FUNC_SCREENSHOT:
+            if (!(functionsContext.activeSwitches & switch_mask)) {
+              requestScreenshot = true;
+            }
+            break;
+#endif
+
 #if defined(DEBUG)
           case FUNC_TEST:
             testFunc();
@@ -553,6 +596,21 @@ void evalFunctions()
       }
       else {
         functionsContext.lastFunctionTime[i] = 0;
+#if defined(DANGEROUS_MODULE_FUNCTIONS)
+        if (functionsContext.activeSwitches & switch_mask) {
+          switch (CFN_FUNC(cfn)) {
+            case FUNC_RANGECHECK:
+            case FUNC_BIND:
+            {
+              unsigned int moduleIndex = CFN_PARAM(cfn);
+              if (moduleIndex < NUM_MODULES) {
+                moduleFlag[moduleIndex] = 0;
+              }
+              break;
+            }
+          }
+        }
+#endif
       }
     }
   }

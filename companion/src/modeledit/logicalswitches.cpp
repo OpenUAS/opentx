@@ -248,7 +248,7 @@ void LogicalSwitchesPanel::edited()
         else {
           model->logicalSw[i].val3 = TimToVal(cswitchOffset2[i]->value()) - model->logicalSw[i].val2;
         }
-        updateTimerParam(cswitchOffset2[i], model->logicalSw[i].val2+model->logicalSw[i].val3, cswitchOffset[i]->value()-0.1);
+        updateTimerParam(cswitchOffset2[i], model->logicalSw[i].val2+model->logicalSw[i].val3, ValToTim(TimToVal(cswitchOffset[i]->value())-1));
         if (model->logicalSw[i].val3 == 0) {
           cswitchOffset2[i]->setSuffix("(infinite)");
         }
@@ -261,6 +261,7 @@ void LogicalSwitchesPanel::edited()
     }
     emit modified();
     lock = false;
+    updateLine(i);
   }
 }
 
@@ -300,7 +301,7 @@ void LogicalSwitchesPanel::setSwitchWidgetVisibility(int i)
   {
     case LS_FAMILY_VOFS:
       mask |= SOURCE1_VISIBLE;
-      populateSourceCB(cswitchSource1[i], source, model, POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
+      populateSourceCB(cswitchSource1[i], source, generalSettings, model, POPULATE_NONE | POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
       cswitchOffset[i]->setDecimals(range.decimals);
       cswitchOffset[i]->setSingleStep(range.step);
       if (source.isTimeBased()) {
@@ -308,7 +309,10 @@ void LogicalSwitchesPanel::setSwitchWidgetVisibility(int i)
         int maxTime = round(range.max);
         int value = round(range.step*model->logicalSw[i].val2 + range.offset);
         cswitchTOffset[i]->setMaximumTime(QTimeS(maxTime));
-        cswitchTOffset[i]->setDisplayFormat((maxTime>=3600)?"hh:mm:ss":"mm:ss");
+        QString format = (maxTime>=3600) ? "hh:mm:ss" : "mm:ss";
+        if (!range.unit.isEmpty())
+          format += QString("' [%1]'").arg(range.unit);
+        cswitchTOffset[i]->setDisplayFormat(format);
         cswitchTOffset[i]->setTime(QTimeS(value));
       }
       else {
@@ -334,7 +338,7 @@ void LogicalSwitchesPanel::setSwitchWidgetVisibility(int i)
       mask &= ~DELAY_ENABLED;
       populateSwitchCB(cswitchSource1[i], RawSwitch(model->logicalSw[i].val1), generalSettings, LogicalSwitchesContext);
       updateTimerParam(cswitchOffset[i], model->logicalSw[i].val2, 0.0);
-      updateTimerParam(cswitchOffset2[i], model->logicalSw[i].val2+model->logicalSw[i].val3, cswitchOffset[i]->value()-0.1);
+      updateTimerParam(cswitchOffset2[i], model->logicalSw[i].val2+model->logicalSw[i].val3, ValToTim(TimToVal(cswitchOffset[i]->value())-1));
       cswitchOffset2[i]->setSpecialValueText(tr("(no release)"));
       if (model->logicalSw[i].val3 == 0) {
         cswitchOffset2[i]->setSuffix(tr("(infinite)"));
@@ -345,8 +349,8 @@ void LogicalSwitchesPanel::setSwitchWidgetVisibility(int i)
       break;
     case LS_FAMILY_VCOMP:
       mask |= SOURCE1_VISIBLE | SOURCE2_VISIBLE;
-      populateSourceCB(cswitchSource1[i], RawSource(model->logicalSw[i].val1), model, POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
-      populateSourceCB(cswitchSource2[i], RawSource(model->logicalSw[i].val2), model, POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
+      populateSourceCB(cswitchSource1[i], RawSource(model->logicalSw[i].val1), generalSettings, model, POPULATE_NONE | POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
+      populateSourceCB(cswitchSource2[i], RawSource(model->logicalSw[i].val2), generalSettings, model, POPULATE_NONE | POPULATE_SOURCES | POPULATE_SCRIPT_OUTPUTS | POPULATE_VIRTUAL_INPUTS | POPULATE_TRIMS | POPULATE_SWITCHES | POPULATE_TELEMETRY | (firmware->getCapability(GvarsInCS) ? POPULATE_GVARS : 0));
       break;
     case LS_FAMILY_TIMER:
       mask |= VALUE1_VISIBLE | VALUE2_VISIBLE;
@@ -460,15 +464,15 @@ void LogicalSwitchesPanel::update()
 
 void LogicalSwitchesPanel::cswPaste()
 {
-    const QClipboard *clipboard = QApplication::clipboard();
-    const QMimeData *mimeData = clipboard->mimeData();
-    if (mimeData->hasFormat("application/x-companion-csw")) {
-      QByteArray cswData = mimeData->data("application/x-companion-csw");
-      LogicalSwitchData *csw = &model->logicalSw[selectedSwitch];
-      memcpy(csw, cswData.mid(0, sizeof(LogicalSwitchData)).constData(), sizeof(LogicalSwitchData));
-      emit modified();
-      updateLine(selectedSwitch);
-    }
+  const QClipboard *clipboard = QApplication::clipboard();
+  const QMimeData *mimeData = clipboard->mimeData();
+  if (mimeData->hasFormat("application/x-companion-csw")) {
+    QByteArray cswData = mimeData->data("application/x-companion-csw");
+    LogicalSwitchData *csw = &model->logicalSw[selectedSwitch];
+    memcpy(csw, cswData.constData(), sizeof(LogicalSwitchData));
+    emit modified();
+    updateLine(selectedSwitch);
+  }
 }
 
 void LogicalSwitchesPanel::cswDelete()

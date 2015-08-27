@@ -38,8 +38,11 @@
 
 uint8_t s_pulses_paused = 0;
 uint8_t s_current_protocol[NUM_MODULES] = { MODULES_INIT(255) };
-uint32_t failsafeCounter[NUM_MODULES] = { MODULES_INIT(100) };
+uint16_t failsafeCounter[NUM_MODULES] = { MODULES_INIT(100) };
 uint8_t moduleFlag[NUM_MODULES] = { 0 };
+
+ModulePulsesData modulePulsesData[NUM_MODULES] __DMA;
+TrainerPulsesData trainerPulsesData __DMA;
 
 void setupPulses(unsigned int port)
 {
@@ -50,13 +53,27 @@ void setupPulses(unsigned int port)
   switch (port) {
 #if defined(PCBTARANIS)
     case INTERNAL_MODULE:
+  #if defined(TARANIS_INTERNAL_PPM)
+      switch (g_model.moduleData[INTERNAL_MODULE].type) {
+        case MODULE_TYPE_PPM:
+          required_protocol = PROTO_PPM;
+          break;
+        case MODULE_TYPE_XJT:
+          required_protocol = PROTO_PXX;
+          break;
+        default:
+          required_protocol = PROTO_NONE;
+          break;
+      }
+  #else
       required_protocol = g_model.moduleData[INTERNAL_MODULE].rfProtocol == RF_PROTO_OFF ? PROTO_NONE : PROTO_PXX;
+  #endif
       break;
 #endif
 
     default:
       port = EXTERNAL_MODULE; // ensure it's external module only
-      switch (g_model.externalModule) {
+      switch (g_model.moduleData[EXTERNAL_MODULE].type) {
         case MODULE_TYPE_PPM:
           required_protocol = PROTO_PPM;
           break;
@@ -93,9 +110,12 @@ void setupPulses(unsigned int port)
     required_protocol = PROTO_NONE;
   }
 
+#if 0
+  // will need an EEPROM conversion
   if (moduleFlag[port] == MODULE_OFF) {
     required_protocol = PROTO_NONE;
   }
+#endif
 
   if (s_current_protocol[port] != required_protocol) {
 

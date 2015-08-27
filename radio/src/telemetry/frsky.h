@@ -91,6 +91,9 @@
 #define D_A1_ID                 0xF1
 #define D_A2_ID                 0xF2
 
+#define VFAS_D_HIPREC_OFFSET    2000
+ 
+
 // FrSky new DATA IDs (2 bytes)
 #define ALT_FIRST_ID            0x0100
 #define ALT_LAST_ID             0x010f
@@ -135,8 +138,13 @@
 #define RSSI_ID                 0xf101
 #define ADC1_ID                 0xf102
 #define ADC2_ID                 0xf103
+#define SP2UART_A_ID            0xfd00
+#define SP2UART_B_ID            0xfd01
 #define BATT_ID                 0xf104
 #define SWR_ID                  0xf105
+#define XJT_VERSION_ID          0xf106
+#define FUEL_QTY_FIRST_ID       0x0a10
+#define FUEL_QTY_LAST_ID        0x0a1f
 
 // Default sensor data IDs (Physical IDs + CRC)
 #define DATA_ID_VARIO            0x00 // 0
@@ -146,6 +154,7 @@
 #define DATA_ID_RPM              0xE4 // 4
 #define DATA_ID_SP2UH            0x45 // 5
 #define DATA_ID_SP2UR            0xC6 // 6
+
 
 // Global Fr-Sky telemetry data variables
 extern uint8_t frskyStreaming; // >0 (true) == data is streaming in. 0 = nodata detected for some time
@@ -318,10 +327,10 @@ enum TelemAnas {
 
 #if defined(CPUARM)
 struct FrskyData {
-#if defined(SWR)
   FrskyValueWithMin swr; // TODO Min not needed
-#endif
   FrskyValueWithMin rssi; // TODO Min not needed
+  uint16_t xjtVersion;
+  bool varioHighPrecision;
 };
 #else
 struct FrskyData {
@@ -330,6 +339,14 @@ struct FrskyData {
   FrskySerialData hub;
 };
 #endif
+
+
+#if defined(PCBTARANIS) && defined(REVPLUS)
+  #define IS_VALID_XJT_VERSION()      (frskyData.xjtVersion != 0 && frskyData.xjtVersion != 0xff)
+#else
+  #define IS_VALID_XJT_VERSION()      (1)
+#endif
+#define IS_HIDDEN_TELEMETRY_VALUE() ((appId == SP2UART_A_ID) || (appId == SP2UART_B_ID) || (appId == XJT_VERSION_ID) || ((appId == SWR_ID) && !IS_VALID_XJT_VERSION()))
 
 enum AlarmLevel {
   alarm_off = 0,
@@ -476,7 +493,9 @@ void frskyDProcessPacket(uint8_t *packet);
 
 // FrSky S.PORT Protocol
 void processSportPacket(uint8_t *packet);
-
+#if defined(PCBTARANIS)
+void sportFirmwareUpdate(ModuleIndex module, const char *filename);
+#endif
 void telemetryWakeup(void);
 void telemetryReset();
 void telemetryInit(void);
@@ -495,7 +514,7 @@ void frskyUpdateCells(void);
 #endif
 
 #if defined(PCBTARANIS)
-  #define MODEL_TELEMETRY_PROTOCOL() ((g_model.moduleData[INTERNAL_MODULE].rfProtocol == RF_PROTO_OFF && g_model.externalModule == MODULE_TYPE_PPM) ? g_model.telemetryProtocol : PROTOCOL_FRSKY_SPORT)
+  #define MODEL_TELEMETRY_PROTOCOL() ((g_model.moduleData[INTERNAL_MODULE].rfProtocol == RF_PROTO_OFF && g_model.moduleData[EXTERNAL_MODULE].type == MODULE_TYPE_PPM) ? g_model.telemetryProtocol : PROTOCOL_FRSKY_SPORT)
 #elif defined(CPUARM)
   #define MODEL_TELEMETRY_PROTOCOL() g_model.telemetryProtocol
 #endif

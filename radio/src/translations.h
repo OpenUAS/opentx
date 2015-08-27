@@ -64,6 +64,9 @@
 #elif defined(TRANSLATIONS_PT)
 #include "translations/pt.h"
 #define LEN_SPECIAL_CHARS 0
+#elif defined(TRANSLATIONS_NL)
+#include "translations/nl.h"
+#define LEN_SPECIAL_CHARS 0
 #else
 #include "translations/en.h"
 #define LEN_SPECIAL_CHARS 0
@@ -104,15 +107,27 @@ extern const pm_char STR_OPEN9X[];
 #define OFS_TRNCHN             (OFS_TRNMODE + sizeof(TR_TRNMODE))
 #if defined(PCBTARANIS)
   #define OFS_UART3MODES       (OFS_TRNCHN + sizeof(TR_TRNCHN))
-  #define OFS_POTTYPES         (OFS_UART3MODES + sizeof(TR_UART3MODES))
-  #define OFS_VTRIMINC         (OFS_POTTYPES + sizeof(TR_POTTYPES))
+  #define OFS_SWTYPES          (OFS_UART3MODES + sizeof(TR_UART3MODES))
+  #define OFS_POTTYPES         (OFS_SWTYPES + sizeof(TR_SWTYPES))
+  #define OFS_SLIDERTYPES      (OFS_POTTYPES + sizeof(TR_POTTYPES))
+  #define OFS_VTRIMINC         (OFS_SLIDERTYPES + sizeof(TR_SLIDERTYPES))
 #else
   #define OFS_VTRIMINC         (OFS_TRNCHN + sizeof(TR_TRNCHN))
 #endif
-#define OFS_RETA123            (OFS_VTRIMINC + sizeof(TR_VTRIMINC))
+#if defined(CPUARM)
+  #define OFS_VDISPLAYTRIMS    (OFS_VTRIMINC + sizeof(TR_VTRIMINC))
+  #define OFS_RETA123          (OFS_VDISPLAYTRIMS + sizeof(TR_VDISPLAYTRIMS))
+#else
+  #define OFS_RETA123          (OFS_VTRIMINC + sizeof(TR_VTRIMINC))
+#endif
 #define OFS_VPROTOS            (OFS_RETA123 + sizeof(TR_RETA123))
 #define OFS_POSNEG             (OFS_VPROTOS + sizeof(TR_VPROTOS))
-#define OFS_VBLMODE            (OFS_POSNEG + sizeof(TR_POSNEG))
+#if defined(PCBSKY9X) && defined(REVX)
+  #define OFS_VOUTPUT_TYPE     (OFS_POSNEG + sizeof(TR_POSNEG))
+  #define OFS_VBLMODE          (OFS_VOUTPUT_TYPE + sizeof(TR_VOUTPUT_TYPE))
+#else
+  #define OFS_VBLMODE          (OFS_POSNEG + sizeof(TR_POSNEG))
+#endif
 #define OFS_VCURVEFUNC         (OFS_VBLMODE + sizeof(TR_VBLMODE))
 #define OFS_VMLTPX             (OFS_VCURVEFUNC + sizeof(TR_VCURVEFUNC))
 #define OFS_VMLTPX2            (OFS_VMLTPX + sizeof(TR_VMLTPX))
@@ -168,7 +183,8 @@ extern const pm_char STR_OPEN9X[];
 #if defined(CPUARM)
   #define OFS_VUNITSSYSTEM      (OFS_VLCD + sizeof(TR_VLCD))
   #define OFS_VBEEPCOUNTDOWN    (OFS_VUNITSSYSTEM + sizeof(TR_VUNITSSYSTEM))
-  #define OFS_COUNTRYCODES      (OFS_VBEEPCOUNTDOWN + sizeof(TR_VBEEPCOUNTDOWN))
+  #define OFS_VVARIOCENTER      (OFS_VBEEPCOUNTDOWN + sizeof(TR_VBEEPCOUNTDOWN))
+  #define OFS_COUNTRYCODES      (OFS_VVARIOCENTER + sizeof(TR_VVARIOCENTER))
 #else
   #define OFS_COUNTRYCODES      (OFS_VLCD)
 #endif
@@ -185,7 +201,11 @@ extern const pm_char STR_OPEN9X[];
   #define OFS_DSM_PROTOCOLS     (OFS_XJT_PROTOCOLS + sizeof(TR_XJT_PROTOCOLS))
   #define OFS_VOLTSRC           (OFS_DSM_PROTOCOLS + sizeof(TR_DSM_PROTOCOLS))
   #define OFS_CURVE_TYPES       (OFS_VOLTSRC + sizeof(TR_VOLTSRC))
-  #define OFS_MAVLINK_BAUDS     (OFS_CURVE_TYPES + sizeof(TR_CURVE_TYPES))
+  #define OFS_VSENSORTYPES      (OFS_CURVE_TYPES + sizeof(TR_CURVE_TYPES))
+  #define OFS_VFORMULAS         (OFS_VSENSORTYPES + sizeof(TR_VSENSORTYPES))
+  #define OFS_VPREC             (OFS_VFORMULAS + sizeof(TR_VFORMULAS))
+  #define OFS_VCELLINDEX        (OFS_VPREC + sizeof(TR_VPREC))
+  #define OFS_MAVLINK_BAUDS     (OFS_VCELLINDEX + sizeof(TR_VCELLINDEX))
 #else
   #define OFS_MAVLINK_BAUDS	(OFS_VTRAINERMODES)
 #endif
@@ -207,11 +227,17 @@ extern const pm_char STR_OPEN9X[];
 #define STR_TRNMODE             (STR_OPEN9X + OFS_TRNMODE)
 #define STR_TRNCHN              (STR_OPEN9X + OFS_TRNCHN)
 #define STR_UART3MODES          (STR_OPEN9X + OFS_UART3MODES)
+#define STR_SWTYPES             (STR_OPEN9X + OFS_SWTYPES)
 #define STR_POTTYPES            (STR_OPEN9X + OFS_POTTYPES)
+#define STR_SLIDERTYPES         (STR_OPEN9X + OFS_SLIDERTYPES)
 #define STR_VTRIMINC            (STR_OPEN9X + OFS_VTRIMINC)
+#define STR_VDISPLAYTRIMS       (STR_OPEN9X + OFS_VDISPLAYTRIMS)
 #define STR_RETA123             (STR_OPEN9X + OFS_RETA123)
 #define STR_VPROTOS             (STR_OPEN9X + OFS_VPROTOS)
 #define STR_POSNEG              (STR_OPEN9X + OFS_POSNEG)
+#if defined(PCBSKY9X) && defined(REVX)
+  #define STR_VOUTPUT_TYPE      (STR_OPEN9X + OFS_VOUTPUT_TYPE)
+#endif
 #define STR_VBLMODE             (STR_OPEN9X + OFS_VBLMODE)
 #define STR_VCURVEFUNC          (STR_OPEN9X + OFS_VCURVEFUNC)
 #define STR_VSIDE               STR_VCURVEFUNC
@@ -275,6 +301,7 @@ extern const pm_char STR_OPEN9X[];
   #define STR_VLCD              (STR_OPEN9X + OFS_VLCD)
   #define STR_VUNITSSYSTEM      (STR_OPEN9X + OFS_VUNITSSYSTEM)
   #define STR_VBEEPCOUNTDOWN    (STR_OPEN9X + OFS_VBEEPCOUNTDOWN)
+  #define STR_VVARIOCENTER      (STR_OPEN9X + OFS_VVARIOCENTER)
 #endif
 
 #if defined(PXX) || defined(CPUARM)
@@ -288,6 +315,10 @@ extern const pm_char STR_OPEN9X[];
   #define STR_XJT_PROTOCOLS     (STR_OPEN9X + OFS_XJT_PROTOCOLS)
   #define STR_DSM_PROTOCOLS     (STR_OPEN9X + OFS_DSM_PROTOCOLS)
   #define STR_CURVE_TYPES       (STR_OPEN9X + OFS_CURVE_TYPES)
+  #define STR_VSENSORTYPES      (STR_OPEN9X + OFS_VSENSORTYPES)
+  #define STR_VFORMULAS         (STR_OPEN9X + OFS_VFORMULAS)
+  #define STR_VPREC             (STR_OPEN9X + OFS_VPREC)
+  #define STR_VCELLINDEX        (STR_OPEN9X + OFS_VCELLINDEX)
 #endif
 
 #if defined(MAVLINK)
@@ -295,7 +326,7 @@ extern const pm_char STR_OPEN9X[];
   #define STR_MAVLINK_AC_MODES	(STR_OPEN9X + OFS_MAVLINK_AC_MODES)
   #define STR_MAVLINK_AP_MODES	(STR_OPEN9X + OFS_MAVLINK_AP_MODES)
 #endif
-  
+
 // The 0-terminated-strings
 #define NO_INDENT(x) (x)+LEN_INDENT
 
@@ -320,9 +351,14 @@ extern const pm_char STR_TIMER[];
 extern const pm_char STR_ELIMITS[];
 extern const pm_char STR_ETRIMS[];
 extern const pm_char STR_TRIMINC[];
+extern const pm_char STR_DISPLAY_TRIMS[];
 extern const pm_char STR_TTRACE[];
 extern const pm_char STR_TTRIM[];
 extern const pm_char STR_BEEPCTR[];
+extern const pm_char STR_USE_GLOBAL_FUNCS[];
+#if defined(PCBSKY9X) && defined(REVX)
+  extern const pm_char STR_OUTPUT_TYPE[];
+#endif
 extern const pm_char STR_PROTO[];
 extern const pm_char STR_PPMFRAME[];
 extern const pm_char STR_MS[];
@@ -334,6 +370,8 @@ extern const pm_char STR_DEFAULT[];
 extern const pm_char STR_CHECKTRIMS[];
 extern const pm_char STR_SWASHTYPE[];
 extern const pm_char STR_COLLECTIVE[];
+extern const pm_char STR_AILERON[];
+extern const pm_char STR_ELEVATOR[];
 extern const pm_char STR_SWASHRING[];
 extern const pm_char STR_ELEDIRECTION[];
 extern const pm_char STR_AILDIRECTION[];
@@ -372,6 +410,7 @@ extern const pm_char STR_CV[];
 extern const pm_char STR_GV[];
 extern const pm_char STR_ACHANNEL[];
 extern const pm_char STR_RANGE[];
+extern const pm_char STR_CENTER[];
 extern const pm_char STR_BAR[];
 extern const pm_char STR_ALARM[];
 extern const pm_char STR_USRDATA[];
@@ -413,12 +452,17 @@ extern const pm_char STR_SPLASHSCREEN[];
 extern const pm_char STR_THROTTLEWARNING[];
 extern const pm_char STR_SWITCHWARNING[];
 extern const pm_char STR_TIMEZONE[];
+extern const pm_char STR_ADJUST_RTC[];
+extern const pm_char STR_GPS[];
 extern const pm_char STR_GPSCOORD[];
 extern const pm_char STR_VARIO[];
 extern const pm_char STR_PITCH_AT_ZERO[];
 extern const pm_char STR_PITCH_AT_MAX[];
 extern const pm_char STR_REPEAT_AT_ZERO[];
 extern const pm_char STR_RXCHANNELORD[];
+extern const pm_char STR_STICKS[];
+extern const pm_char STR_POTS[];
+extern const pm_char STR_SWITCHES[];
 extern const pm_char STR_SWITCHES_DELAY[];
 extern const pm_char STR_SLAVE[];
 extern const pm_char STR_MODESRC[];
@@ -525,6 +569,10 @@ extern const pm_char STR_SHUTDOWN[];
 extern const pm_char STR_SAVEMODEL[];
 #endif
 
+#if defined(PCBTARANIS) && defined(REV9E)
+extern const pm_char STR_POWEROFF[];
+#endif
+
 extern const pm_char STR_BATT_CALIB[];
 
 #if defined(CPUARM) || defined(FRSKY)
@@ -577,6 +625,7 @@ extern const pm_char STR_RESET_BTN[];
   extern const pm_char STR_RESTORE_MODEL[];
   extern const pm_char STR_SDCARD_ERROR[];
   extern const pm_char STR_NO_SDCARD[];
+  extern const pm_char STR_SDCARD_FULL[];
   extern const pm_char STR_INCOMPATIBLE[];
   extern const pm_char STR_LOGS_PATH[];
   extern const pm_char STR_LOGS_EXT[];
@@ -591,6 +640,8 @@ extern const pm_char STR_EEPROM_CONVERTING[];
 extern const pm_char STR_THROTTLEWARN[];
 extern const pm_char STR_ALARMSWARN[];
 extern const pm_char STR_SWITCHWARN[];
+extern const pm_char STR_FAILSAFEWARN[];
+extern const pm_char STR_NO_FAILSAFE[];
 extern const pm_char STR_KEYSTUCK[];
 
 extern const pm_char STR_SPEAKER_VOLUME[];
@@ -642,12 +693,17 @@ extern const pm_char STR_OWN[];
 extern const pm_char STR_ROTARY_ENCODER[];
 extern const pm_char STR_DATE[];
 extern const pm_char STR_CHANNELS_MONITOR[];
+extern const pm_char STR_MIXERS_MONITOR[];
 extern const pm_char STR_PATH_TOO_LONG[];
 extern const pm_char STR_VIEW_TEXT[];
 extern const pm_char STR_FLASH_BOOTLOADER[];
+extern const pm_char STR_FLASH_EXTERNAL_DEVICE[];
+extern const pm_char STR_FLASH_INTERNAL_MODULE[];
 extern const pm_char STR_WRITING[];
 extern const pm_char STR_CONFIRM_FORMAT[];
 extern const pm_char STR_EEBACKUP[];
+extern const pm_char STR_FACTORYRESET[];
+extern const pm_char STR_CONFIRMRESET[];
 extern const pm_char STR_TOO_MANY_LUA_SCRIPTS[];
 extern const pm_char STR_BLCOLOR[];
 
@@ -714,9 +770,26 @@ extern const pm_char STR_BLCOLOR[];
   extern const pm_char STR_CRITICALALARM[];
   extern const pm_char STR_TELEMETRY_TYPE[];
   extern const pm_char STR_TELEMETRY_SENSORS[];
+  extern const pm_char STR_VALUE[];
+  extern const pm_char STR_TOPLCDTIMER[];
+  extern const pm_char STR_UNIT[] PROGMEM;
   extern const pm_char STR_TELEMETRY_NEWSENSOR[];
   extern const pm_char STR_ID[];
   extern const pm_char STR_PRECISION[];
+  extern const pm_char STR_RATIO[];
+  extern const pm_char STR_FORMULA[];
+  extern const pm_char STR_CELLINDEX[];
+  extern const pm_char STR_LOGS[];
+  extern const pm_char STR_OPTIONS[];
+  extern const pm_char STR_ALTSENSOR[];
+  extern const pm_char STR_CELLSENSOR[];
+  extern const pm_char STR_GPSSENSOR[];
+  extern const pm_char STR_CURRENTSENSOR[];
+  extern const pm_char STR_AUTOOFFSET[];
+  extern const pm_char STR_ONLYPOSITIVE[];
+  extern const pm_char STR_FILTER[];
+  extern const pm_char STR_TELEMETRYFULL[];
+  extern const pm_char STR_IGNOREIDS[];
 #endif
 
 #if defined(PCBTARANIS)
@@ -745,7 +818,22 @@ extern const pm_char STR_BLCOLOR[];
   extern const pm_char STR_THROTTLE_LABEL[];
   extern const pm_char STR_SCRIPT[];
   extern const pm_char STR_INPUTS[];
-  extern const pm_char STR_OUTPUTS[]; 
+  extern const pm_char STR_OUTPUTS[];
+  extern const pm_char STR_MENU_INPUTS[];
+  extern const pm_char STR_MENU_LUA[];
+  extern const pm_char STR_MENU_STICKS[];
+  extern const pm_char STR_MENU_POTS[];
+  extern const pm_char STR_MENU_MAX[];
+  extern const pm_char STR_MENU_HELI[];
+  extern const pm_char STR_MENU_TRIMS[];
+  extern const pm_char STR_MENU_SWITCHES[];
+extern const pm_char STR_MENU_LOGICAL_SWITCHES[];
+  extern const pm_char STR_MENU_TRAINER[];
+  extern const pm_char STR_MENU_CHANNELS[];
+  extern const pm_char STR_MENU_GVARS[];
+  extern const pm_char STR_MENU_TELEMETRY[];
+extern const pm_char STR_MENU_OTHER[];
+extern const pm_char STR_MENU_INVERT[];
 #endif
 
 #if MENUS_LOCK == 1
@@ -790,30 +878,30 @@ extern const pm_char STR_BLCOLOR[];
   extern const pm_char STR_ABOUT_OPENTX_3[];
   extern const pm_char STR_ABOUT_OPENTX_4[];
   extern const pm_char STR_ABOUT_OPENTX_5[];
-  
+
   extern const pm_char STR_ABOUT_BERTRAND_1[];
   extern const pm_char STR_ABOUT_BERTRAND_2[];
   extern const pm_char STR_ABOUT_BERTRAND_3[];
-  
+
   extern const pm_char STR_ABOUT_MIKE_1[];
   extern const pm_char STR_ABOUT_MIKE_2[];
   extern const pm_char STR_ABOUT_MIKE_3[];
   extern const pm_char STR_ABOUT_MIKE_4[];
-  
+
   extern const pm_char STR_ABOUT_ROMOLO_1[];
   extern const pm_char STR_ABOUT_ROMOLO_2[];
   extern const pm_char STR_ABOUT_ROMOLO_3[];
-  
+
   extern const pm_char STR_ABOUT_ANDRE_1[];
   extern const pm_char STR_ABOUT_ANDRE_2[];
   extern const pm_char STR_ABOUT_ANDRE_3[];
-  
+
   extern const pm_char STR_ABOUT_ROB_1[];
   extern const pm_char STR_ABOUT_ROB_2[];
-  
+
   extern const pm_char STR_ABOUT_MARTIN_1[];
   extern const pm_char STR_ABOUT_MARTIN_2[];
-  
+
   extern const pm_char STR_ABOUT_KJELL_1[];
   extern const pm_char STR_ABOUT_KJELL_2[];
   extern const pm_char STR_ABOUT_KJELL_3[];
@@ -822,7 +910,7 @@ extern const pm_char STR_BLCOLOR[];
   extern const pm_char STR_ABOUT_HARDWARE_1[];
   extern const pm_char STR_ABOUT_HARDWARE_2[];
   extern const pm_char STR_ABOUT_HARDWARE_3[];
-  
+
   extern const pm_char STR_ABOUT_PARENTS_1[];
   extern const pm_char STR_ABOUT_PARENTS_2[];
   extern const pm_char STR_ABOUT_PARENTS_3[];

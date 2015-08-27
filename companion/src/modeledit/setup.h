@@ -40,13 +40,22 @@ class TimerPanel : public ModelPanel
 
 class ModulePanel : public ModelPanel
 {
+  static const int maxChannels = 16;
+
+  struct ChannelFailsafeWidgetsGroup {
+    QComboBox * combo;
+    QDoubleSpinBox * spinbox;
+  };
+
     Q_OBJECT
 
   public:
     ModulePanel(QWidget *parent, ModelData & model, ModuleData & module, GeneralSettings & generalSettings, Firmware * firmware, int moduleIdx);
     virtual ~ModulePanel();
-
     virtual void update();
+
+  protected:
+    void updateFailsafe(int channel);
 
   private slots:
     void on_trainerMode_currentIndexChanged(int index);
@@ -55,9 +64,11 @@ class ModulePanel : public ModelPanel
     void on_channelsCount_editingFinished();
     void on_channelsStart_editingFinished();
     void on_ppmPolarity_currentIndexChanged(int index);
+    void on_ppmOutputType_currentIndexChanged(int index);
     void on_ppmFrameLength_editingFinished();
     void on_rxNumber_editingFinished();
     void on_failsafeMode_currentIndexChanged(int value);
+    void onFailsafeComboIndexChanged(int index);
     void onFailsafeSpinChanged(double value);
 
   private:
@@ -65,6 +76,7 @@ class ModulePanel : public ModelPanel
     int moduleIdx;
     Ui::Module *ui;
     QVector<QDoubleSpinBox *> failsafeSpins;
+    ChannelFailsafeWidgetsGroup failsafeGroups[maxChannels];
 };
 
 class SetupPanel : public ModelPanel
@@ -89,6 +101,7 @@ class SetupPanel : public ModelPanel
     void on_throttleWarning_toggled(bool checked);
     void on_throttleReverse_toggled(bool checked);
     void on_displayText_toggled(bool checked);
+    void on_gfEnabled_toggled(bool checked);
     void on_image_currentIndexChanged(int index);
     void on_trimIncrement_currentIndexChanged(int index);
     void onBeepCenterToggled(bool checked);

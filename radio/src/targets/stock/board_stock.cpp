@@ -99,14 +99,17 @@ inline void boardInit()
   // Set up I/O port data directions and initial states
   DDRA = 0xff;  PORTA = 0x00; // LCD data
   DDRB = 0x81;  PORTB = 0x7e; //pullups keys+nc
+#if defined(TELEMETRY_MOD_14051) || defined(TELEMETRY_MOD_14051_SWAPPED)
+  DDRC = 0xff;  PORTC = 0x00;
+#else
   DDRC = 0x3e;  PORTC = 0xc1; //pullups nc
+#endif
   DDRD = 0x00;  PORTD = 0xff; //pullups keys
   DDRE = (1<<OUT_E_BUZZER); PORTE = 0xff-(1<<OUT_E_BUZZER); //pullups + buzzer 0
   DDRF = 0x00;  PORTF = 0x00; //anain
   DDRG = 0x14;  PORTG = 0xfb; //pullups + SIM_CTL=1 = phonejack = ppm_in, Haptic output and off (0)
 
-  ADMUX  = ADC_VREF_TYPE;
-  ADCSRA = 0x85; // ADC enabled, pre-scaler division=32 (no interrupt, no auto-triggering)
+  adcInit();
 
 #if defined(CPUM2561)
   TCCR2B  = (0b111 << CS20); // Norm mode, clk/1024 (differs from ATmega64 chip)
@@ -130,12 +133,19 @@ inline void boardInit()
   #endif
 #elif defined(PWM_BACKLIGHT)
   /** Smartieparts LED Backlight is connected to PORTB/pin7, which can be used as pwm output of timer2 **/
-  #if defined(SP22)
-    TCCR2  = (0b011 << CS20)|(1<<WGM20)|(1<<COM21)|(1<<COM20); // inv. pwm mode, clk/64
+  #if defined(CPUM2561)
+    #if defined(SP22)
+      TCCR0A = (1<<WGM00)|(1<<COM0A1)|(1<<COM0A0); // inv. pwm mode, clk/64
+    #else
+      TCCR0A = (1<<WGM00)|(1<<COM0A1); // pwm mode, clk/64
+    #endif
+    TCCR0B = (0b011<<CS00);
   #else
-    TCCR2  = (0b011 << CS20)|(1<<WGM20)|(1<<COM21); // pwm mode, clk/64
-  #endif
-  #if !defined(CPUM2561)
+    #if defined(SP22)
+      TCCR2  = (0b011<<CS20)|(1<<WGM20)|(1<<COM21)|(1<<COM20); // inv. pwm mode, clk/64
+    #else
+      TCCR2  = (0b011<<CS20)|(1<<WGM20)|(1<<COM21); // pwm mode, clk/64
+    #endif
     TIMSK |= (1<<OCIE0) | (1<<TOIE0); // Enable Output-Compare and Overflow interrrupts
   #endif
 #else
@@ -154,10 +164,49 @@ uint8_t keyDown()
   return ((~PINB) & 0x7E) | ROTENC_DOWN();
 }
 
-#if defined(TELEMETRY_MOD_14051)
-  extern uint8_t pf7_digital[2];
-  #define THR_STATE()   pf7_digital[0]
-  #define AIL_STATE()   pf7_digital[1]
+#if !defined(SIMU) && (defined(TELEMETRY_MOD_14051) || defined(TELEMETRY_MOD_14051_SWAPPED))
+uint8_t pf7_digital[MUX_PF7_DIGITAL_MAX - MUX_PF7_DIGITAL_MIN + 1];
+/**
+ * Update ADC PF7 using 14051 multiplexer
+ * X0 : Battery voltage
+ * X1 : AIL SW
+ * X2 : THR SW
+ * X3 : TRIM LEFT VERTICAL UP
+ * X4 : TRIM LEFT VERTICAL DOWN
+ */
+void processMultiplexAna()
+{
+  static uint8_t muxNum = MUX_BATT;
+  uint8_t nextMuxNum = muxNum-1;
+
+  switch (muxNum) {
+    case MUX_BATT:
+      s_anaFilt[TX_VOLTAGE] = s_anaFilt[X14051];
+      nextMuxNum = MUX_MAX;
+      break;
+    case MUX_AIL:
+    case MUX_THR:
+    case MUX_TRM_LV_UP:
+    case MUX_TRM_LV_DWN:
+      // Digital switch depend from input voltage
+      // take half voltage to determine digital state
+      pf7_digital[muxNum - MUX_PF7_DIGITAL_MIN] = (s_anaFilt[X14051] >= (s_anaFilt[TX_VOLTAGE] / 2)) ? 1 : 0;
+      break;
+  }
+
+  // set the mux number for the next ADC convert,
+  // stabilize voltage before ADC read.
+  muxNum = nextMuxNum;
+  PORTC &= ~((1 << PC7) | (1 << PC6) | (1 << PC0));
+  if(muxNum & 1) PORTC |= (1 << PC7); // Mux CTRL A
+  if(muxNum & 2) PORTC |= (1 << PC6); // Mux CTRL B
+  if(muxNum & 4) PORTC |= (1 << PC0); // Mux CTRL C
+}
+#endif
+
+#if !defined(SIMU) && (defined(TELEMETRY_MOD_14051) || defined(TELEMETRY_MOD_14051_SWAPPED))
+  #define THR_STATE()   pf7_digital[PF7_THR]
+  #define AIL_STATE()   pf7_digital[PF7_AIL]
 #elif defined(JETI) || defined(FRSKY) || defined(ARDUPILOT) || defined(NMEA) || defined(MAVLINK)
   #define THR_STATE()   (PINC & (1<<INP_C_ThrCt))
   #define AIL_STATE()   (PINC & (1<<INP_C_AileDR))
@@ -201,20 +250,6 @@ bool switchState(EnumKeys enuk)
       result = !(PINE & (1<<INP_E_ID2));
       break;
 
-#if defined(EXTRA_3POS)
-    case SW_ID3:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] < 0);
-      break;
-
-    case SW_ID4:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] == 0);
-      break;
-
-    case SW_ID5:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] > 0);
-      break;
-#endif
-
     case SW_GEA:
       result = PINE & (1<<INP_E_Gear);
       break;
@@ -235,21 +270,29 @@ bool switchState(EnumKeys enuk)
 }
 
 // Trim switches ...
-static const pm_uchar crossTrim[] PROGMEM ={
-  1<<INP_D_TRM_LH_DWN,  // bit 7
-  1<<INP_D_TRM_LH_UP,
-  1<<INP_D_TRM_LV_DWN,
-  1<<INP_D_TRM_LV_UP,
-  1<<INP_D_TRM_RV_DWN,
-  1<<INP_D_TRM_RV_UP,
-  1<<INP_D_TRM_RH_DWN,
-  1<<INP_D_TRM_RH_UP    // bit 0
-};
+uint8_t trimHelper(uint8_t negpin, uint8_t idx)
+{
+  switch(idx){
+    case 0: return negpin & TRIMS_GPIO_PIN_LHL;
+    case 1: return negpin & TRIMS_GPIO_PIN_LHR;
+#if !defined(SIMU) && defined(TELEMETRY_MOD_14051_SWAPPED)
+    case 2: return !pf7_digital[PF7_TRM_LV_DWN];
+    case 3: return !pf7_digital[PF7_TRM_LV_UP];
+#else
+    case 2: return negpin & TRIMS_GPIO_PIN_LVD;
+    case 3: return negpin & TRIMS_GPIO_PIN_LVU;
+#endif
+    case 4: return negpin & TRIMS_GPIO_PIN_RVD;
+    case 5: return negpin & TRIMS_GPIO_PIN_RVU;
+    case 6: return negpin & TRIMS_GPIO_PIN_RHL;
+    case 7: return negpin & TRIMS_GPIO_PIN_RHR;
+    default: return 0;
+  }
+}
 
 uint8_t trimDown(uint8_t idx)
 {
-  uint8_t in = ~PIND;
-  return (in & pgm_read_byte(crossTrim+idx));
+  return trimHelper(~PIND, idx);
 }
 
 FORCEINLINE void readKeysAndTrims()
@@ -259,7 +302,6 @@ FORCEINLINE void readKeysAndTrims()
   // User buttons ...
   uint8_t in = ~PINB;
   for (int i=1; i<7; i++) {
-    // INP_B_KEY_MEN 1  .. INP_B_KEY_LFT 6
     keys[enuk].input(in & (1<<i));
     ++enuk;
   }
@@ -268,7 +310,7 @@ FORCEINLINE void readKeysAndTrims()
   in = ~PIND;
   for (int i=0; i<8; i++) {
     // INP_D_TRM_RH_UP   0 .. INP_D_TRM_LH_UP   7
-    keys[enuk].input(in & pgm_read_byte(crossTrim+i));
+    keys[enuk].input(trimHelper(in, i));
     ++enuk;
   }
 
@@ -311,28 +353,35 @@ static const uint8_t pwmtable[16] PROGMEM =
 static uint8_t bl_target;
 static uint8_t bl_current;
 
-void backlightFadeOn()
+void backlightEnable()
 {
   bl_target = 15 - g_eeGeneral.blOnBright;
 }
 
-void backlightFadeOff()
+void backlightDisable()
 {
   bl_target = g_eeGeneral.blOffBright;
 }
 
-bool getBackLightState()
+bool isBacklightEnable()
 {
   return (bl_target==g_eeGeneral.blOnBright);
 }
 
-void backlightFade() //called from per10ms()
+void backlightFade() // called from per10ms()
 {
   if (bl_target != bl_current) {
+#if defined(CPUM2561)
+    if (bl_target > bl_current)
+      OCR0A = pgm_read_byte(&pwmtable[++bl_current]);
+    else
+      OCR0A = pgm_read_byte(&pwmtable[--bl_current]);
+#else
     if (bl_target > bl_current)
       OCR2 = pgm_read_byte(&pwmtable[++bl_current]);
     else
       OCR2 = pgm_read_byte(&pwmtable[--bl_current]);
+#endif
   }
 }
 

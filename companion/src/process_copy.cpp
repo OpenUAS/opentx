@@ -18,7 +18,7 @@ result(true)
 bool CopyProcess::run()
 {
   progress->lock(true);
-  progress->setInfo(tr("Copying file..."));
+  // progress->setInfo(tr("Copying file..."));
 
   QEventLoop loop;
   connect(this, SIGNAL(finished()), &loop, SLOT(quit()));
@@ -38,8 +38,8 @@ void CopyProcess::onTimer()
 
   if (sourceFile.open(QIODevice::ReadOnly)) {
     QFile destinationFile(destination);
-    if (destinationFile.open(QIODevice::WriteOnly)) {
-      progress->addText(tr("Writing file: "));
+    if (destinationFile.open(QIODevice::ReadWrite)) {
+      // progress->addText(tr("Writing file: "));
       for (int i=0; i<blocks; i++) {
         int read = sourceFile.read(buf, BLKSIZE);
         if (destinationFile.write(buf, read) == read) {

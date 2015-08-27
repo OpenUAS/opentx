@@ -16,16 +16,20 @@ class ProgressWidget : public QWidget
     ~ProgressWidget();
     void lock(bool lock);
     void addText(const QString &text);
+    QString getText();
     void setInfo(const QString &text);
     void setMaximum(int value);
+    int maximum();
     void setValue(int value);
     void setProgressColor(const QColor &color);
     void addSeparator();
     void forceOpen();
+    void stop();
 
   signals:
     void detailsToggled();
     void locked(bool);
+    void stopped();
 
   protected slots:
     void on_checkBox_toggled(bool checked);

@@ -47,21 +47,30 @@
   #include <direct.h>
 #endif
 
-volatile uint8_t pina=0xff, pinb=0xff, pinc=0xff, pind, pine=0xff, pinf=0xff, ping=0xff, pinh=0xff, pinj=0xff, pinl=0;
+#if defined(SIMU_DISKIO)
+  FILE * diskImage = 0;
+#endif
+
+#if defined(SIMU_AUDIO) && defined(CPUARM)
+  #include <SDL.h>
+#endif
+
+volatile uint8_t pina=0xff, pinb=0xff, pinc=0xff, pind, pine=0xff, pinf=0xff, ping=0xff, pinh=0xff, pinj=0, pinl=0;
 uint8_t portb, portc, porth=0, dummyport;
 uint16_t dummyport16;
 const char *eepromFile = NULL;
 FILE *fp = NULL;
+int g_snapshot_idx = 0;
 
-#if defined(PCBTARANIS)
+#if defined(CPUSTM32)
 uint32_t Peri1_frequency, Peri2_frequency;
 GPIO_TypeDef gpioa, gpiob, gpioc, gpiod, gpioe, gpiof, gpiog;
-TIM_TypeDef tim1, tim2, tim3, tim4, tim8, tim10;
+TIM_TypeDef tim1, tim2, tim3, tim4, tim5, tim6, tim7, tim8, tim9, tim10;
 RCC_TypeDef rcc;
 DMA_Stream_TypeDef dma2_stream2, dma2_stream6;
 DMA_TypeDef dma2;
 USART_TypeDef Usart0, Usart1, Usart2, Usart3, Usart4;
-#elif defined(PCBSKY9X)
+#elif defined(CPUARM)
 Pio Pioa, Piob, Pioc;
 Pwm pwm;
 Twi Twio;
@@ -70,82 +79,89 @@ Dacc dacc;
 Adc Adc0;
 #endif
 
-#if defined(PCBSKY9X)
+#if defined(EEPROM_RLC)
+  extern uint16_t eeprom_pointer;
+  extern uint8_t * eeprom_buffer_data;
+#else
   uint32_t eeprom_pointer;
-  char* eeprom_buffer_data;
+  uint8_t * eeprom_buffer_data;
   volatile int32_t eeprom_buffer_size;
   bool eeprom_read_operation;
-  #define EESIZE_SIMU (128*4096)
-#else
-  extern uint16_t eeprom_pointer;
-  extern const char* eeprom_buffer_data;
+  #define EESIZE_SIMU (128*4096) // TODO why here?
 #endif
 
 #if !defined(EESIZE_SIMU)
   #define EESIZE_SIMU EESIZE
 #endif
 
-#if defined(SDCARD)
+#if defined(SDCARD) && !defined(SKIP_FATFS_DECLARATION)
 char simuSdDirectory[1024] = "";
 #endif
 
 uint8_t eeprom[EESIZE_SIMU];
 sem_t *eeprom_write_sem;
 
-#if defined(CPUARM)
-#if defined(PCBTARANIS)
-#define SWITCH_CASE(swtch, pin, mask) \
-    case swtch: \
+void simuInit()
+{
+  for (int i = 0; i <= 17; i++) {
+    simuSetSwitch(i, 0);
+    simuSetKey(i, false);  // a little dirty, but setting keys that don't exist is perfectly OK here
+  }
+}
+
+#define NEG_CASE(sw_or_key, pin, mask) \
+    case sw_or_key: \
       if ((int)state > 0) pin &= ~(mask); else pin |= (mask); \
       break;
-#else
-#define SWITCH_CASE(swtch, pin, mask) \
-    case swtch: \
+#define POS_CASE(sw_or_key, pin, mask) \
+    case sw_or_key: \
       if ((int)state > 0) pin |= (mask); else pin &= ~(mask); \
       break;
-#endif
-#define SWITCH_3_CASE(swtch, pin1, pin2, mask1, mask2) \
+
+#if defined(CPUARM)
+  #if defined(PCBTARANIS) && !defined(REV9E)
+    #define SWITCH_CASE NEG_CASE
+  #else
+    #define SWITCH_CASE POS_CASE
+  #endif
+  #define SWITCH_3_CASE(swtch, pin1, pin2, mask1, mask2) \
     case swtch: \
       if ((int)state < 0) pin1 &= ~(mask1); else pin1 |= (mask1); \
       if ((int)state > 0) pin2 &= ~(mask2); else pin2 |= (mask2); \
       break;
-#define KEY_CASE(key, pin, mask) \
-    case key: \
-      if ((int)state > 0) pin &= ~mask; else pin |= mask;\
-      break;
-#define TRIM_CASE KEY_CASE
+  #define KEY_CASE NEG_CASE
+  #define TRIM_CASE NEG_CASE
 #else
-#define SWITCH_CASE(swtch, pin, mask) \
-    case swtch: \
-      if ((int)state > 0) pin &= ~(mask); else pin |= (mask); \
-      break;
-#define SWITCH_3_CASE(swtch, pin1, pin2, mask1, mask2) \
+  #if defined(PCBMEGA2560)
+    #define SWITCH_CASE POS_CASE
+  #else
+    #define SWITCH_CASE NEG_CASE
+  #endif
+  #define SWITCH_3_CASE(swtch, pin1, pin2, mask1, mask2) \
     case swtch: \
       if ((int)state >= 0) pin1 &= ~(mask1); else pin1 |= (mask1); \
       if ((int)state <= 0) pin2 &= ~(mask2); else pin2 |= (mask2); \
       break;
-#define KEY_CASE(key, pin, mask) \
-    case key: \
-      if ((int)state > 0) pin |= (mask); else pin &= ~(mask);\
-      break;
-#define TRIM_CASE KEY_CASE
+  #define KEY_CASE POS_CASE
+  #define TRIM_CASE KEY_CASE
 #endif
 
 void simuSetKey(uint8_t key, bool state)
 {
+  // TRACE("simuSetKey(%d, %d)", key, state);
   switch (key) {
-    KEY_CASE(KEY_MENU, GPIO_BUTTON_MENU, PIN_BUTTON_MENU)
-    KEY_CASE(KEY_EXIT, GPIO_BUTTON_EXIT, PIN_BUTTON_EXIT)
+    KEY_CASE(KEY_MENU, KEYS_GPIO_REG_MENU, KEYS_GPIO_PIN_MENU)
+    KEY_CASE(KEY_EXIT, KEYS_GPIO_REG_EXIT, KEYS_GPIO_PIN_EXIT)
 #if defined(PCBTARANIS)
-    KEY_CASE(KEY_ENTER, GPIO_BUTTON_ENTER, PIN_BUTTON_ENTER)
-    KEY_CASE(KEY_PAGE, GPIO_BUTTON_PAGE, PIN_BUTTON_PAGE)
-    KEY_CASE(KEY_MINUS, GPIO_BUTTON_MINUS, PIN_BUTTON_MINUS)
-    KEY_CASE(KEY_PLUS, GPIO_BUTTON_PLUS, PIN_BUTTON_PLUS)
+    KEY_CASE(KEY_ENTER, KEYS_GPIO_REG_ENTER, KEYS_GPIO_PIN_ENTER)
+    KEY_CASE(KEY_PAGE, KEYS_GPIO_REG_PAGE, KEYS_GPIO_PIN_PAGE)
+    KEY_CASE(KEY_MINUS, KEYS_GPIO_REG_MINUS, KEYS_GPIO_PIN_MINUS)
+    KEY_CASE(KEY_PLUS, KEYS_GPIO_REG_PLUS, KEYS_GPIO_PIN_PLUS)
 #else
-    KEY_CASE(KEY_RIGHT, GPIO_BUTTON_RIGHT, PIN_BUTTON_RIGHT)
-    KEY_CASE(KEY_LEFT, GPIO_BUTTON_LEFT, PIN_BUTTON_LEFT)
-    KEY_CASE(KEY_UP, GPIO_BUTTON_UP, PIN_BUTTON_UP)
-    KEY_CASE(KEY_DOWN, GPIO_BUTTON_DOWN, PIN_BUTTON_DOWN)
+    KEY_CASE(KEY_RIGHT, KEYS_GPIO_REG_RIGHT, KEYS_GPIO_PIN_RIGHT)
+    KEY_CASE(KEY_LEFT, KEYS_GPIO_REG_LEFT, KEYS_GPIO_PIN_LEFT)
+    KEY_CASE(KEY_UP, KEYS_GPIO_REG_UP, KEYS_GPIO_PIN_UP)
+    KEY_CASE(KEY_DOWN, KEYS_GPIO_REG_DOWN, KEYS_GPIO_PIN_DOWN)
 #endif
 #if defined(PCBSKY9X) && !defined(REVX)
     KEY_CASE(BTN_REa, PIOB->PIO_PDSR, 0x40)
@@ -159,53 +175,53 @@ void simuSetKey(uint8_t key, bool state)
 
 void simuSetTrim(uint8_t trim, bool state)
 {
-  // printf("trim=%d state=%d\n", trim, state); fflush(stdout);
+  // TRACE("trim=%d state=%d", trim, state);
 
   switch (trim) {
-    TRIM_CASE(0, GPIO_TRIM_LH_L, PIN_TRIM_LH_L)
-    TRIM_CASE(1, GPIO_TRIM_LH_R, PIN_TRIM_LH_R)
-    TRIM_CASE(2, GPIO_TRIM_LV_DN, PIN_TRIM_LV_DN)
-    TRIM_CASE(3, GPIO_TRIM_LV_UP, PIN_TRIM_LV_UP)
-    TRIM_CASE(4, GPIO_TRIM_RV_DN, PIN_TRIM_RV_DN)
-    TRIM_CASE(5, GPIO_TRIM_RV_UP, PIN_TRIM_RV_UP)
-    TRIM_CASE(6, GPIO_TRIM_RH_L, PIN_TRIM_RH_L)
-    TRIM_CASE(7, GPIO_TRIM_RH_R, PIN_TRIM_RH_R)
+    TRIM_CASE(0, TRIMS_GPIO_REG_LHL, TRIMS_GPIO_PIN_LHL)
+    TRIM_CASE(1, TRIMS_GPIO_REG_LHR, TRIMS_GPIO_PIN_LHR)
+    TRIM_CASE(2, TRIMS_GPIO_REG_LVD, TRIMS_GPIO_PIN_LVD)
+    TRIM_CASE(3, TRIMS_GPIO_REG_LVU, TRIMS_GPIO_PIN_LVU)
+    TRIM_CASE(4, TRIMS_GPIO_REG_RVD, TRIMS_GPIO_PIN_RVD)
+    TRIM_CASE(5, TRIMS_GPIO_REG_RVU, TRIMS_GPIO_PIN_RVU)
+    TRIM_CASE(6, TRIMS_GPIO_REG_RHL, TRIMS_GPIO_PIN_RHL)
+    TRIM_CASE(7, TRIMS_GPIO_REG_RHR, TRIMS_GPIO_PIN_RHR)
   }
 }
 
 // TODO use a better numbering to allow google tests to work on Taranis
 void simuSetSwitch(uint8_t swtch, int8_t state)
 {
-  // printf("swtch=%d state=%d\n", swtch, state); fflush(stdout);
+  // TRACE("simuSetSwitch(%d, %d)", swtch, state);
   switch (swtch) {
 #if defined(PCBTARANIS) && defined(REV9E)
-    SWITCH_3_CASE(0, GPIO_PIN_SW_A_L, GPIO_PIN_SW_A_H, PIN_SW_A_L, PIN_SW_A_H)
-    SWITCH_3_CASE(1, GPIO_PIN_SW_B_L, GPIO_PIN_SW_B_H, PIN_SW_B_L, PIN_SW_B_H)
-    SWITCH_3_CASE(2, GPIO_PIN_SW_C_L, GPIO_PIN_SW_C_H, PIN_SW_C_L, PIN_SW_C_H)
-    SWITCH_3_CASE(3, GPIO_PIN_SW_D_L, GPIO_PIN_SW_D_H, PIN_SW_D_L, PIN_SW_D_H)
-    SWITCH_3_CASE(4, GPIO_PIN_SW_E_H, GPIO_PIN_SW_E_L, PIN_SW_E_H, PIN_SW_E_L)
-    SWITCH_3_CASE(5, GPIO_PIN_SW_F_H, GPIO_PIN_SW_F_L, PIN_SW_F_H, PIN_SW_F_L)
-    SWITCH_3_CASE(6, GPIO_PIN_SW_G_L, GPIO_PIN_SW_G_H, PIN_SW_G_L, PIN_SW_G_H)
-    SWITCH_3_CASE(7, GPIO_PIN_SW_H_L, GPIO_PIN_SW_H_H, PIN_SW_H_H, PIN_SW_H_L)
-    SWITCH_3_CASE(8, GPIO_PIN_SW_I_L, GPIO_PIN_SW_I_H, PIN_SW_I_H, PIN_SW_I_L)
-    SWITCH_3_CASE(9, GPIO_PIN_SW_J_L, GPIO_PIN_SW_J_H, PIN_SW_J_H, PIN_SW_J_L)
-    SWITCH_3_CASE(10, GPIO_PIN_SW_K_L, GPIO_PIN_SW_K_H, PIN_SW_K_H, PIN_SW_I_L)
-    SWITCH_3_CASE(11, GPIO_PIN_SW_L_L, GPIO_PIN_SW_L_H, PIN_SW_L_H, PIN_SW_J_L)
-    SWITCH_3_CASE(12, GPIO_PIN_SW_M_L, GPIO_PIN_SW_M_H, PIN_SW_M_H, PIN_SW_I_L)
-    SWITCH_3_CASE(13, GPIO_PIN_SW_N_L, GPIO_PIN_SW_N_H, PIN_SW_N_H, PIN_SW_J_L)
-    SWITCH_3_CASE(14, GPIO_PIN_SW_O_L, GPIO_PIN_SW_O_H, PIN_SW_O_H, PIN_SW_I_L)
-    SWITCH_3_CASE(15, GPIO_PIN_SW_P_L, GPIO_PIN_SW_P_H, PIN_SW_P_H, PIN_SW_J_L)
-    SWITCH_3_CASE(16, GPIO_PIN_SW_Q_L, GPIO_PIN_SW_Q_H, PIN_SW_Q_H, PIN_SW_I_L)
-    SWITCH_3_CASE(17, GPIO_PIN_SW_R_L, GPIO_PIN_SW_R_H, PIN_SW_R_H, PIN_SW_J_L)
+    SWITCH_3_CASE(0,  SWITCHES_GPIO_REG_A_L, SWITCHES_GPIO_REG_A_H, SWITCHES_GPIO_PIN_A_L, SWITCHES_GPIO_PIN_A_H)
+    SWITCH_3_CASE(1,  SWITCHES_GPIO_REG_B_L, SWITCHES_GPIO_REG_B_H, SWITCHES_GPIO_PIN_B_L, SWITCHES_GPIO_PIN_B_H)
+    SWITCH_3_CASE(2,  SWITCHES_GPIO_REG_C_L, SWITCHES_GPIO_REG_C_H, SWITCHES_GPIO_PIN_C_L, SWITCHES_GPIO_PIN_C_H)
+    SWITCH_3_CASE(3,  SWITCHES_GPIO_REG_D_L, SWITCHES_GPIO_REG_D_H, SWITCHES_GPIO_PIN_D_L, SWITCHES_GPIO_PIN_D_H)
+    SWITCH_3_CASE(4,  SWITCHES_GPIO_REG_E_L, SWITCHES_GPIO_REG_E_H, SWITCHES_GPIO_PIN_E_L, SWITCHES_GPIO_PIN_E_H)
+    SWITCH_CASE(5, SWITCHES_GPIO_REG_F, SWITCHES_GPIO_PIN_F)
+    SWITCH_3_CASE(6,  SWITCHES_GPIO_REG_G_L, SWITCHES_GPIO_REG_G_H, SWITCHES_GPIO_PIN_G_L, SWITCHES_GPIO_PIN_G_H)
+    SWITCH_CASE(7, SWITCHES_GPIO_REG_H, SWITCHES_GPIO_PIN_H)
+    SWITCH_3_CASE(8,  SWITCHES_GPIO_REG_I_L, SWITCHES_GPIO_REG_I_H, SWITCHES_GPIO_PIN_I_L, SWITCHES_GPIO_PIN_I_H)
+    SWITCH_3_CASE(9,  SWITCHES_GPIO_REG_J_L, SWITCHES_GPIO_REG_J_H, SWITCHES_GPIO_PIN_J_L, SWITCHES_GPIO_PIN_J_H)
+    SWITCH_3_CASE(10, SWITCHES_GPIO_REG_K_L, SWITCHES_GPIO_REG_K_H, SWITCHES_GPIO_PIN_K_L, SWITCHES_GPIO_PIN_K_H)
+    SWITCH_3_CASE(11, SWITCHES_GPIO_REG_L_L, SWITCHES_GPIO_REG_L_H, SWITCHES_GPIO_PIN_L_L, SWITCHES_GPIO_PIN_L_H)
+    SWITCH_3_CASE(12, SWITCHES_GPIO_REG_M_L, SWITCHES_GPIO_REG_M_H, SWITCHES_GPIO_PIN_M_L, SWITCHES_GPIO_PIN_M_H)
+    SWITCH_3_CASE(13, SWITCHES_GPIO_REG_N_L, SWITCHES_GPIO_REG_N_H, SWITCHES_GPIO_PIN_N_L, SWITCHES_GPIO_PIN_N_H)
+    SWITCH_3_CASE(14, SWITCHES_GPIO_REG_O_L, SWITCHES_GPIO_REG_O_H, SWITCHES_GPIO_PIN_O_L, SWITCHES_GPIO_PIN_O_H)
+    SWITCH_3_CASE(15, SWITCHES_GPIO_REG_P_L, SWITCHES_GPIO_REG_P_H, SWITCHES_GPIO_PIN_P_L, SWITCHES_GPIO_PIN_P_H)
+    SWITCH_3_CASE(16, SWITCHES_GPIO_REG_Q_L, SWITCHES_GPIO_REG_Q_H, SWITCHES_GPIO_PIN_Q_L, SWITCHES_GPIO_PIN_Q_H)
+    SWITCH_3_CASE(17, SWITCHES_GPIO_REG_R_L, SWITCHES_GPIO_REG_R_H, SWITCHES_GPIO_PIN_R_L, SWITCHES_GPIO_PIN_R_H)
 #elif defined(PCBTARANIS)
-    SWITCH_3_CASE(0, GPIO_PIN_SW_A_L, GPIO_PIN_SW_A_H, PIN_SW_A_L, PIN_SW_A_H)
-    SWITCH_3_CASE(1, GPIO_PIN_SW_B_L, GPIO_PIN_SW_B_H, PIN_SW_B_L, PIN_SW_B_H)
-    SWITCH_3_CASE(2, GPIO_PIN_SW_C_L, GPIO_PIN_SW_C_H, PIN_SW_C_L, PIN_SW_C_H)
-    SWITCH_3_CASE(3, GPIO_PIN_SW_D_L, GPIO_PIN_SW_D_H, PIN_SW_D_L, PIN_SW_D_H)
-    SWITCH_3_CASE(4, GPIO_PIN_SW_E_H, GPIO_PIN_SW_E_L, PIN_SW_E_H, PIN_SW_E_L)
-    SWITCH_CASE(5, GPIO_PIN_SW_F, PIN_SW_F)
-    SWITCH_3_CASE(6, GPIO_PIN_SW_G_L, GPIO_PIN_SW_G_H, PIN_SW_G_L, PIN_SW_G_H)
-    SWITCH_CASE(7, GPIO_PIN_SW_H, PIN_SW_H)
+    SWITCH_3_CASE(0,  SWITCHES_GPIO_REG_A_L, SWITCHES_GPIO_REG_A_H, SWITCHES_GPIO_PIN_A_L, SWITCHES_GPIO_PIN_A_H)
+    SWITCH_3_CASE(1,  SWITCHES_GPIO_REG_B_L, SWITCHES_GPIO_REG_B_H, SWITCHES_GPIO_PIN_B_L, SWITCHES_GPIO_PIN_B_H)
+    SWITCH_3_CASE(2,  SWITCHES_GPIO_REG_C_L, SWITCHES_GPIO_REG_C_H, SWITCHES_GPIO_PIN_C_L, SWITCHES_GPIO_PIN_C_H)
+    SWITCH_3_CASE(3,  SWITCHES_GPIO_REG_D_L, SWITCHES_GPIO_REG_D_H, SWITCHES_GPIO_PIN_D_L, SWITCHES_GPIO_PIN_D_H)
+    SWITCH_3_CASE(4,  SWITCHES_GPIO_REG_E_H, SWITCHES_GPIO_REG_E_L, SWITCHES_GPIO_PIN_E_H, SWITCHES_GPIO_PIN_E_L)
+    SWITCH_CASE(5, SWITCHES_GPIO_REG_F, SWITCHES_GPIO_PIN_F)
+    SWITCH_3_CASE(6,  SWITCHES_GPIO_REG_G_L, SWITCHES_GPIO_REG_G_H, SWITCHES_GPIO_PIN_G_L, SWITCHES_GPIO_PIN_G_H)
+    SWITCH_CASE(7, SWITCHES_GPIO_REG_H, SWITCHES_GPIO_PIN_H)
 #elif defined(PCBSKY9X)
     SWITCH_CASE(0, PIOC->PIO_PDSR, 1<<20)
     SWITCH_CASE(1, PIOA->PIO_PDSR, 1<<15)
@@ -265,7 +281,7 @@ void *eeprom_write_function(void *)
 #if defined(CPUARM)
     if (eeprom_read_operation) {
       assert(eeprom_buffer_size);
-      eeprom_read_block(eeprom_buffer_data, (const void *)(int64_t)eeprom_pointer, eeprom_buffer_size);
+      eepromReadBlock(eeprom_buffer_data, eeprom_pointer, eeprom_buffer_size);
     }
     else {
 #endif
@@ -313,6 +329,10 @@ void *main_thread(void *)
   try {
 #endif
 
+#if defined(CPUARM)
+    stack_paint();
+#endif
+    
     s_current_protocol[0] = 255;
 
     g_menuStackPtr = 0;
@@ -320,6 +340,12 @@ void *main_thread(void *)
     g_menuStack[1] = menuModelSelect;
 
     eeReadAll(); // load general setup and selected model
+
+#if defined(SIMU_DISKIO)
+    f_mount(&g_FATFS_Obj, "", 1);
+    // call sdGetFreeSectors() now because f_getfree() takes a long time first time it's called
+    sdGetFreeSectors();
+#endif
 
 #if defined(CPUARM) && defined(SDCARD)
     referenceSystemAudioFiles();
@@ -341,6 +367,9 @@ void *main_thread(void *)
     while (main_thread_running) {
 #if defined(CPUARM)
       doMixerCalculations();
+#if defined(FRSKY) || defined(MAVLINK)
+      telemetryWakeup();
+#endif
       checkTrims();
 #endif
       perMain();
@@ -355,6 +384,12 @@ void *main_thread(void *)
   }
   catch (...) {
     main_thread_running = 0;
+  }
+#endif
+
+#if defined(SIMU_DISKIO)
+  if (diskImage) {
+    fclose(diskImage);
   }
 #endif
 
@@ -379,7 +414,21 @@ void StartMainThread(bool tests)
   pthread_mutex_init(&audioMutex, NULL);
 #endif
 
-  g_tmr10ms = 0;
+  /*
+    g_tmr10ms must be non-zero otherwise some SF functions (that use this timer as a marker when it was last executed) 
+    will be executed twice on startup. Normal radio does not see this issue because g_tmr10ms is already a big number
+    before the first call to the Special Functions. Not so in the simulator.
+
+    There is another issue, some other function static variables depend on this value. If simulator is started 
+    multiple times in one Companion session, they are set to their initial values only first time the simulator
+    is started. Therefore g_tmr10ms must also be set to non-zero value only the first time, then it must be left
+    alone to continue from the previous simulator session value. See the issue #2446
+
+  */
+  if (g_tmr10ms == 0) {
+    g_tmr10ms = 1;
+  }
+  
 #if defined(RTCLOCK)
   g_rtcTime = time(0);
 #endif
@@ -394,7 +443,150 @@ void StopMainThread()
   pthread_join(main_thread_pid, NULL);
 }
 
+#if defined(CPUARM)
+
+struct SimulatorAudio {
+  int volumeGain;
+  int currentVolume;
+  uint16_t leftoverData[AUDIO_BUFFER_SIZE];
+  int leftoverLen;
+  bool threadRunning;
+  pthread_t threadPid;
+} simuAudio;
+
+bool dacQueue(AudioBuffer *buffer)
+{
+  return false;
+}
+
+void setVolume(uint8_t volume)
+{
+  simuAudio.currentVolume = min<int>((volumeScale[min<uint8_t>(volume, VOLUME_LEVEL_MAX)] * simuAudio.volumeGain) / 10, 127);
+  // TRACE("setVolume(): in: %u, out: %u", volume, simuAudio.currentVolume);
+}
+#endif
+
+#if defined(SIMU_AUDIO) && defined(CPUARM)
+
+void copyBuffer(uint8_t * dest, uint16_t * buff, unsigned int samples) 
+{
+  for(unsigned int i=0; i<samples; i++) {
+    int sample = ((int32_t)(uint32_t)(buff[i]) - 0x8000);  // conversion from uint16_t 
+    *((uint16_t*)dest) = (int16_t)((sample * simuAudio.currentVolume)/127);
+    dest += 2;
+  }
+}
+
+void fillAudioBuffer(void *udata, Uint8 *stream, int len)
+{
+  SDL_memset(stream, 0, len);
+
+  if (simuAudio.leftoverLen) {
+    copyBuffer(stream, simuAudio.leftoverData, simuAudio.leftoverLen);
+    len -= simuAudio.leftoverLen*2;
+    stream += simuAudio.leftoverLen*2;
+    simuAudio.leftoverLen = 0;
+    // putchar('l');
+  }
+
+  if (audioQueue.filledAtleast(len/(AUDIO_BUFFER_SIZE*2)+1) ) {
+    while(true) {
+      AudioBuffer *nextBuffer = audioQueue.getNextFilledBuffer();
+      if (nextBuffer) {
+        if (len >= nextBuffer->size*2) {
+          copyBuffer(stream, nextBuffer->data, nextBuffer->size);
+          stream += nextBuffer->size*2;
+          len -= nextBuffer->size*2;
+          // putchar('+');
+        }
+        else {
+          //partial
+          copyBuffer(stream, nextBuffer->data, len/2);
+          simuAudio.leftoverLen = (nextBuffer->size-len/2);
+          memcpy(simuAudio.leftoverData, &nextBuffer->data[len/2], simuAudio.leftoverLen*2);
+          len = 0;
+          // putchar('p');
+          break;
+        }
+      }
+      else {
+        break;
+      }
+    }
+  }
+
+  //fill the rest of buffer with silence
+  if (len > 0) {
+    SDL_memset(stream, 0x8000, len);  // make sure this is silence.
+    // putchar('.');
+  }
+}
+
+void * audioThread(void *)
+{
+  /*
+    Checking here if SDL audio was initialized is wrong, because
+    the SDL_CloseAudio() de-initializes it.
+
+    if ( !SDL_WasInit(SDL_INIT_AUDIO) ) {
+      fprintf(stderr, "ERROR: couldn't initialize SDL audio support\n");
+      return 0;
+    }
+  */
+
+  SDL_AudioSpec wanted, have;
+
+  /* Set the audio format */
+  wanted.freq = AUDIO_SAMPLE_RATE;
+  wanted.format = AUDIO_S16SYS;
+  wanted.channels = 1;    /* 1 = mono, 2 = stereo */
+  wanted.samples = AUDIO_BUFFER_SIZE*2;  /* Good low-latency value for callback */
+  wanted.callback = fillAudioBuffer;
+  wanted.userdata = NULL;
+
+  /*
+    SDL_OpenAudio() internally calls SDL_InitSubSystem(SDL_INIT_AUDIO),
+    which initializes SDL Audio subsystem if necessary
+  */
+  if ( SDL_OpenAudio(&wanted, &have) < 0 ) {
+    fprintf(stderr, "Couldn't open audio: %s\n", SDL_GetError());
+    return 0;
+  }
+  SDL_PauseAudio(0);
+
+  while (simuAudio.threadRunning) {
+    audioQueue.wakeup();
+    sleep(1);
+  }
+  SDL_CloseAudio();
+  return 0;
+}
+
+void StartAudioThread(int volumeGain)
+{ 
+  simuAudio.leftoverLen = 0;
+  simuAudio.threadRunning = true;
+  simuAudio.volumeGain = volumeGain;
+  setVolume(VOLUME_LEVEL_DEF);
+
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  struct sched_param sp;
+  sp.sched_priority = SCHED_RR;
+  pthread_attr_setschedparam(&attr, &sp);
+  pthread_create(&simuAudio.threadPid, &attr, &audioThread, NULL);
+  return;
+}
+
+void StopAudioThread()
+{
+  simuAudio.threadRunning = false;
+  pthread_join(simuAudio.threadPid, NULL);
+}
+#endif // #if defined(SIMU_AUDIO) && defined(CPUARM)
+
 pthread_t eeprom_thread_pid;
+
 void StartEepromThread(const char *filename)
 {
   eepromFile = filename;
@@ -434,16 +626,12 @@ void StopEepromThread()
   if (fp) fclose(fp);
 }
 
-#if defined(PCBTARANIS)
-void eeprom_read_block (void *pointer_ram, uint16_t pointer_eeprom, size_t size)
-#else
-void eeprom_read_block (void *pointer_ram, const void *pointer_eeprom, size_t size)
-#endif
+void eepromReadBlock (uint8_t * pointer_ram, uint32_t pointer_eeprom, uint32_t size)
 {
   assert(size);
 
   if (fp) {
-    // printf("EEPROM read (pos=%d, size=%d)\n", pointer_eeprom, size); fflush(stdout);
+    // TRACE("EEPROM read (pos=%d, size=%d)", pointer_eeprom, size);
     if (fseek(fp, (long)pointer_eeprom, SEEK_SET)==-1) perror("error in fseek");
     if (fread(pointer_ram, size, 1, fp) <= 0) perror("error in fread");
   }
@@ -453,12 +641,12 @@ void eeprom_read_block (void *pointer_ram, const void *pointer_eeprom, size_t si
 }
 
 #if defined(PCBTARANIS)
-void eeWriteBlockCmp(const void *pointer_ram, uint16_t pointer_eeprom, size_t size)
+void eepromWriteBlock(uint8_t * pointer_ram, uint32_t pointer_eeprom, uint32_t size)
 {
   assert(size);
 
   if (fp) {
-    // printf("EEPROM write (pos=%d, size=%d)\n", pointer_eeprom, size); fflush(stdout);
+    // TRACE("EEPROM write (pos=%d, size=%d)", pointer_eeprom, size);
     if (fseek(fp, (long)pointer_eeprom, SEEK_SET)==-1) perror("error in fseek");
     if (fwrite(pointer_ram, size, 1, fp) <= 0) perror("error in fwrite");
   }
@@ -487,15 +675,22 @@ static void EeFsDump(){
 }
 #endif
 
-#if defined(SDCARD)
+#if defined(SDCARD) && !defined(SKIP_FATFS_DECLARATION) && !defined(SIMU_DISKIO)
 namespace simu {
 #include <dirent.h>
+#if !defined WIN32
+  #include <libgen.h>
+#endif
 }
-#include "FatFs/ff.h"
+#include "ff.h"
 
 #if defined WIN32 || !defined __GNUC__
 #include <direct.h>
+#include <stdlib.h>
 #endif
+
+#include <map>
+#include <string>
 
 #if defined(CPUARM)
 FATFS g_FATFS_Obj;
@@ -512,12 +707,98 @@ char *convertSimuPath(const char *path)
   return result;
 }
 
+typedef std::map<std::string, std::string> filemap_t;
+
+filemap_t fileMap;
+
+char *findTrueFileName(const char *path)
+{
+  TRACE("findTrueFileName(%s)", path);
+  static char result[1024];
+  filemap_t::iterator i = fileMap.find(path);
+  if (i != fileMap.end()) {
+    strcpy(result, i->second.c_str());
+    TRACE("\tfound in map: %s", result);
+    return result;
+  }
+  else {
+    //find file
+    //add to map
+#if defined WIN32 || !defined __GNUC__
+    char drive[_MAX_DRIVE];
+    char dir[_MAX_DIR];
+    char fname[_MAX_FNAME];
+    char ext[_MAX_EXT];
+    _splitpath(path, drive, dir, fname, ext);
+    std::string fileName = std::string(fname) + std::string(ext);
+    std::string dirName = std::string(drive) + std::string(dir);
+    std::string searchName = dirName + "*";
+    // TRACE("\tsearching for: %s", fileName.c_str());
+    WIN32_FIND_DATA ffd;
+    HANDLE hFind = FindFirstFile(searchName.c_str(), &ffd);
+    if (INVALID_HANDLE_VALUE != hFind) {
+      do {
+        if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+          //TRACE("comparing with: %s", ffd.cFileName);
+          if (!strcasecmp(fileName.c_str(), ffd.cFileName)) {
+            strcpy(result, dirName.c_str());
+            strcat(result, ffd.cFileName);
+            TRACE("\tfound: %s", ffd.cFileName);
+            fileMap.insert(filemap_t:: value_type(path, result));
+            return result;  
+          }
+        }
+      }
+      while (FindNextFile(hFind, &ffd) != 0);
+    }
+#else
+    strcpy(result, path);
+    std::string fileName = simu::basename(result);
+    strcpy(result, path);
+    std::string dirName = simu::dirname(result);
+    simu::DIR * dir = simu::opendir(dirName.c_str());
+    if (dir) {
+      // TRACE("\tsearching for: %s", fileName.c_str());
+      for (;;) {
+        struct simu::dirent * res = simu::readdir(dir);
+        if (res == 0) break;
+#if defined(__APPLE__)
+        if ((res->d_type == DT_REG) || (res->d_type == DT_LNK)) {
+#else
+        if ((res->d_type == simu::DT_REG) || (res->d_type == simu::DT_LNK)) {
+#endif
+          // TRACE("comparing with: %s", res->d_name);
+          if (!strcasecmp(fileName.c_str(), res->d_name)) {
+            strcpy(result, dirName.c_str());
+            strcat(result, "/");
+            strcat(result, res->d_name);
+            TRACE("\tfound: %s", res->d_name);
+            fileMap.insert(filemap_t:: value_type(path, result));
+            return result;  
+          }
+        }
+      }
+    }
+#endif
+  }
+  TRACE("\tnot found");
+  strcpy(result, path);
+  return result;
+}
+
 FRESULT f_stat (const TCHAR * name, FILINFO *)
 {
   char *path = convertSimuPath(name);
+  char * realPath = findTrueFileName(path);
   struct stat tmp;
-  TRACE("f_stat(%s)", path);
-  return stat(path, &tmp) ? FR_INVALID_NAME : FR_OK;
+  if (stat(realPath, &tmp)) {
+    TRACE("f_stat(%s) = error %d (%s)", path, errno, strerror(errno));
+    return FR_INVALID_NAME;
+  }
+  else {
+    TRACE("f_stat(%s) = OK", path);
+    return FR_OK;
+  }
 }
 
 FRESULT f_mount (FATFS* ,const TCHAR*, BYTE opt)
@@ -528,23 +809,31 @@ FRESULT f_mount (FATFS* ,const TCHAR*, BYTE opt)
 FRESULT f_open (FIL * fil, const TCHAR *name, BYTE flag)
 {
   char *path = convertSimuPath(name);
-
-  TRACE("f_open(%s)", path);
-
+  char * realPath = findTrueFileName(path);
   if (!(flag & FA_WRITE)) {
     struct stat tmp;
-    if (stat(path, &tmp))
+    if (stat(realPath, &tmp)) {
+      TRACE("f_open(%s) = INVALID_NAME", path);
       return FR_INVALID_NAME;
+    }
     fil->fsize = tmp.st_size;
+    fil->fptr = 0;
   }
-  fil->fs = (FATFS*)fopen(path, (flag & FA_WRITE) ? "wb+" : "rb+");
-  return FR_OK;
+  fil->fs = (FATFS*)fopen(realPath, (flag & FA_WRITE) ? "wb+" : "rb+");
+  fil->fptr = 0;
+  if (fil->fs) {
+    TRACE("f_open(%s) = %p", path, (FILE*)fil->fs);
+    return FR_OK;
+  }
+  TRACE("f_open(%s) = error %d (%s)", path, errno, strerror(errno));
+  return FR_INVALID_NAME;
 }
 
 FRESULT f_read (FIL* fil, void* data, UINT size, UINT* read)
 {
   if (fil && fil->fs) {
     *read = fread(data, 1, size, (FILE*)fil->fs);
+    fil->fptr += *read;
     // TRACE("fread(%p) %u, %u", fil->fs, size, *read);
   }
   return FR_OK;
@@ -552,19 +841,25 @@ FRESULT f_read (FIL* fil, void* data, UINT size, UINT* read)
 
 FRESULT f_write (FIL* fil, const void* data, UINT size, UINT* written)
 {
-  if (fil && fil->fs) *written = fwrite(data, 1, size, (FILE*)fil->fs);
+  if (fil && fil->fs) {
+    *written = fwrite(data, 1, size, (FILE*)fil->fs);
+    fil->fptr += size;
+    // TRACE("fwrite(%p) %u, %u", fil->fs, size, *written);
+  }
   return FR_OK;
 }
 
 FRESULT f_lseek (FIL* fil, DWORD offset)
 {
   if (fil && fil->fs) fseek((FILE*)fil->fs, offset, SEEK_SET);
+  fil->fptr = offset;
   return FR_OK;
 }
 
 FRESULT f_close (FIL * fil)
 {
   if (fil && fil->fs) {
+    TRACE("f_close(%p)", (FILE*)fil->fs);
     fclose((FILE*)fil->fs);
     fil->fs = NULL;
   }
@@ -580,9 +875,13 @@ FRESULT f_chdir (const TCHAR *name)
 FRESULT f_opendir (DIR * rep, const TCHAR * name)
 {
   char *path = convertSimuPath(name);
-  TRACE("f_opendir(%s)", path);
   rep->fs = (FATFS *)simu::opendir(path);
-  return FR_OK;
+  if ( rep->fs ) {
+    TRACE("f_opendir(%s) = OK", path);
+    return FR_OK;
+  }
+  TRACE("f_opendir(%s) = error %d (%s)", path, errno, strerror(errno));
+  return FR_NO_PATH;
 }
 
 FRESULT f_closedir (DIR * rep)
@@ -623,7 +922,7 @@ FRESULT f_readdir (DIR * rep, FILINFO * fil)
 
 FRESULT f_mkfs (const TCHAR *path, BYTE, UINT)
 {
-  printf("Format SD...\n"); fflush(stdout);
+  TRACE("Format SD...");
   return FR_OK;
 }
 
@@ -632,8 +931,24 @@ FRESULT f_mkdir (const TCHAR*)
   return FR_OK;
 }
 
-FRESULT f_unlink (const TCHAR*)
+FRESULT f_unlink (const TCHAR* name)
 {
+  char *path = convertSimuPath(name);
+  if (unlink(path)) {
+    TRACE("f_unlink(%s) = error %d (%s)", path, errno, strerror(errno));
+    return FR_INVALID_NAME;
+  }
+  TRACE("f_unlink(%s) = OK", path);
+  return FR_OK;
+}
+
+FRESULT f_rename(const TCHAR *oldname, const TCHAR *newname)
+{
+  if (rename(oldname, newname) < 0) {
+    TRACE("f_rename(%s, %s) = error %d (%s)", oldname, newname, errno, strerror(errno));
+    return FR_INVALID_NAME;
+  }
+  TRACE("f_rename(%s, %s) = OK", oldname, newname);
   return FR_OK;
 }
 
@@ -663,8 +978,30 @@ int f_printf (FIL *fil, const TCHAR * format, ...)
 
 FRESULT f_getcwd (TCHAR *path, UINT sz_path)
 {
-  strcpy(path, ".");
+  char cwd[1024];
+  if (!getcwd(cwd, 1024)) {
+    TRACE("f_getcwd() = getcwd() error %d (%s)", errno, strerror(errno));
+    strcpy(path, ".");
+    return FR_NO_PATH;
+  }
+
+  if (strlen(cwd) < strlen(simuSdDirectory)) {
+    TRACE("f_getcwd() = logic error strlen(cwd) < strlen(simuSdDirectory):  cwd: \"%s\",  simuSdDirectory: \"%s\"", cwd, simuSdDirectory);
+    strcpy(path, ".");
+    return FR_NO_PATH;
+  }
+
+  // remove simuSdDirectory from the cwd
+  strcpy(path, cwd + strlen(simuSdDirectory));
+  TRACE("f_getcwd() = %s", path);
   return FR_OK;
+}
+
+FRESULT f_getfree (const TCHAR* path, DWORD* nclst, FATFS** fatfs)
+{
+  // just fake that we always have some clusters free
+  *nclst = 10;
+  return FR_OK;  
 }
 
 #if defined(PCBSKY9X)
@@ -672,12 +1009,202 @@ int32_t Card_state = SD_ST_MOUNTED;
 uint32_t Card_CSD[4]; // TODO elsewhere
 #endif
 
+#endif  // #if defined(SDCARD) && !defined(SKIP_FATFS_DECLARATION) && !defined(SIMU_DISKIO)
+
+
+#if defined(SIMU_DISKIO)
+#include "FatFs/diskio.h"
+#include <time.h>
+#include <stdio.h>
+
+#if defined(CPUARM)
+FATFS g_FATFS_Obj = { 0};
 #endif
+
+int ff_cre_syncobj (BYTE vol, _SYNC_t* sobj) /* Create a sync object */
+{
+  return 1;
+}
+
+int ff_req_grant (_SYNC_t sobj)        /* Lock sync object */
+{
+  return 1;
+}
+
+void ff_rel_grant (_SYNC_t sobj)        /* Unlock sync object */
+{
+
+}
+
+int ff_del_syncobj (_SYNC_t sobj)        /* Delete a sync object */
+{
+  return 1;
+}
+
+DWORD get_fattime (void)
+{
+  time_t tim = time(0);
+  const struct tm * t = gmtime(&tim);
+
+  /* Pack date and time into a DWORD variable */
+  return ((DWORD)(t->tm_year - 80) << 25)
+    | ((uint32_t)(t->tm_mon+1) << 21)
+    | ((uint32_t)t->tm_mday << 16)
+    | ((uint32_t)t->tm_hour << 11)
+    | ((uint32_t)t->tm_min << 5)
+    | ((uint32_t)t->tm_sec >> 1);
+}
+
+unsigned int noDiskStatus = 0;
+
+void traceDiskStatus()
+{
+  if (noDiskStatus > 0) {
+    TRACE("disk_status() called %d times", noDiskStatus);
+    noDiskStatus = 0;  
+  }
+}
+
+DSTATUS disk_initialize (BYTE pdrv)
+{
+  traceDiskStatus();
+  TRACE("disk_initialize(%u)", pdrv);
+  diskImage = fopen("sdcard.image", "r+");
+  return diskImage ? (DSTATUS)0 : (DSTATUS)STA_NODISK;
+}
+
+DSTATUS disk_status (BYTE pdrv)
+{
+  ++noDiskStatus;
+  // TRACE("disk_status(%u)", pdrv);
+  return (DSTATUS)0;
+}
+
+DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count)
+{
+  if (diskImage == 0) return RES_NOTRDY;
+  traceDiskStatus();
+  TRACE("disk_read(%u, %p, %u, %u)", pdrv, buff, sector, count);
+  fseek(diskImage, sector*512, SEEK_SET);
+  fread(buff, count, 512, diskImage);
+  return RES_OK;
+}
+
+DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count)
+{
+  if (diskImage == 0) return RES_NOTRDY;
+  traceDiskStatus();
+  TRACE("disk_write(%u, %p, %u, %u)", pdrv, buff, sector, count);
+  fseek(diskImage, sector*512, SEEK_SET);
+  fwrite(buff, count, 512, diskImage);
+  return RES_OK;
+}
+
+DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff)
+{
+  if (diskImage == 0) return RES_NOTRDY;
+  traceDiskStatus();
+  TRACE("disk_ioctl(%u, %u, %p)", pdrv, cmd, buff);
+  if (pdrv) return RES_PARERR;
+
+  DRESULT res;
+  BYTE *ptr = (BYTE *)buff;
+
+  if (cmd == CTRL_POWER) {
+    switch (*ptr) {
+      case 0:         /* Sub control code == 0 (POWER_OFF) */
+        res = RES_OK;
+        break;
+      case 1:         /* Sub control code == 1 (POWER_ON) */
+        res = RES_OK;
+        break;
+      case 2:         /* Sub control code == 2 (POWER_GET) */
+        *(ptr+1) = (BYTE)1;  /* fake powered */
+        res = RES_OK;
+        break;
+      default :
+        res = RES_PARERR;
+    }
+    return res;
+  }
+
+  switch(cmd) {
+/* Generic command (Used by FatFs) */
+    case CTRL_SYNC :     /* Complete pending write process (needed at _FS_READONLY == 0) */
+      break;
+
+    case GET_SECTOR_COUNT: /* Get media size (needed at _USE_MKFS == 1) */
+      {
+        struct stat buf;
+        if (stat("sdcard.image", &buf) == 0) {
+          DWORD noSectors  = buf.st_size / 512;
+          *(DWORD*)buff = noSectors;
+          TRACE("disk_ioctl(GET_SECTOR_COUNT) = %u", noSectors);
+          return RES_OK; 
+        }
+        return RES_ERROR;
+      }
+
+    case GET_SECTOR_SIZE: /* Get sector size (needed at _MAX_SS != _MIN_SS) */
+      TRACE("disk_ioctl(GET_SECTOR_SIZE) = 512");
+      *(WORD*)buff = 512;
+      res = RES_OK;
+      break;
+
+    case GET_BLOCK_SIZE : /* Get erase block size (needed at _USE_MKFS == 1) */
+      *(WORD*)buff = 512 * 4;
+      res = RES_OK;
+      break;
+
+    case CTRL_TRIM : /* Inform device that the data on the block of sectors is no longer used (needed at _USE_TRIM == 1) */
+      break;
+
+/* Generic command (Not used by FatFs) */
+    case CTRL_LOCK : /* Lock/Unlock media removal */
+    case CTRL_EJECT: /* Eject media */
+    case CTRL_FORMAT: /* Create physical format on the media */
+      return RES_PARERR;
+
+
+/* MMC/SDC specific ioctl command */
+    // case MMC_GET_TYPE    10  /* Get card type */
+    // case MMC_GET_CSD     11  /* Get CSD */
+    // case MMC_GET_CID     12  /* Get CID */
+    // case MMC_GET_OCR     13  /* Get OCR */
+    // case MMC_GET_SDSTAT    14  /* Get SD status */
+
+/* ATA/CF specific ioctl command */
+    // case ATA_GET_REV     20  /* Get F/W revision */
+    // case ATA_GET_MODEL   21  /* Get model name */
+    // case ATA_GET_SN      22  /* Get serial number */
+    default:
+      return RES_PARERR;
+  }
+  return RES_OK;
+}
+
+uint32_t sdIsHC()
+{
+  return sdGetSize() > 2000000;
+}
+
+uint32_t sdGetSpeed()
+{
+  return 330000;
+}
+
+#endif // #if defined(SIMU_DISKIO)
+
+
 
 bool lcd_refresh = true;
 display_t lcd_buf[DISPLAY_BUF_SIZE];
 
 void lcdSetRefVolt(uint8_t val)
+{
+}
+
+void adcPrepareBandgap()
 {
 }
 
@@ -695,8 +1222,12 @@ void lcdRefresh()
 
 #if defined(PCBTARANIS)
 void pwrInit() { }
-uint32_t pwrCheck() { return true; }
 void pwrOff() { }
+#if defined(REV9E)
+uint32_t pwrPressed() { return false; }
+#else
+uint32_t pwrCheck() { return true; }
+#endif
 void usbStart() { }
 int usbPlugged() { return false; }
 void USART_DeInit(USART_TypeDef* ) { }
@@ -745,5 +1276,5 @@ void turnBacklightOff(void)
 }
 #endif
 
-#endif
+#endif  // #if defined(PCBTARANIS)
 

@@ -36,10 +36,9 @@
 
 #include "opentx.h"
 
-static uint8_t currentSpeakerVolume = 255;
+uint8_t currentSpeakerVolume = 255;
 uint8_t requiredSpeakerVolume = 255;
-
-extern void checkBattery();
+uint8_t requestScreenshot = false;
 
 void handleUsbConnection()
 {
@@ -82,18 +81,10 @@ void checkSpeakerVolume()
 void checkEeprom()
 {
   if (!usbPlugged()) {
-    // TODO merge these 2 branches
-#if defined(PCBSKY9X)
-    if (Eeprom32_process_state != E32_IDLE)
-      ee32_process();
+    if (eepromIsWriting())
+      eepromWriteProcess();
     else if (TIME_TO_WRITE())
       eeCheck(false);
-#else
-    if (theFile.isWriting())
-      theFile.nextWriteStep();
-    else if (TIME_TO_WRITE())
-      eeCheck(false);
-#endif
   }
 }
 
@@ -129,7 +120,6 @@ void perMain()
 #endif
 
 #if defined(LUA)
-
   uint32_t t0 = get_tmr10ms();
   static uint32_t lastLuaTime = 0;
   uint16_t interval = (lastLuaTime == 0 ? 0 : (t0 - lastLuaTime));
@@ -149,23 +139,31 @@ void perMain()
   lcdRefreshWait();
 
   // draw LCD from menus or from Lua script
-  // run Lua scripts that use LCD 
-  bool scriptWasRun = luaTask(evt, RUN_TELEM_FG_SCRIPT | RUN_STNDAL_SCRIPT, true);
+  // run Lua scripts that use LCD
+
+  bool standaloneScriptWasRun = luaTask(evt, RUN_STNDAL_SCRIPT, true);
+  bool refreshScreen = true;
+  if (!standaloneScriptWasRun) {
+    refreshScreen = !luaTask(evt, RUN_TELEM_FG_SCRIPT, true);
+  }
 
   t0 = get_tmr10ms() - t0;
   if (t0 > maxLuaDuration) {
     maxLuaDuration = t0;
   }
 
-  if (!scriptWasRun) {
+  if (!standaloneScriptWasRun)
 #else
   lcdRefreshWait();   // WARNING: make sure no code above this line does any change to the LCD display buffer!
-  {
+  const bool refreshScreen = true;
 #endif
+  {
     // normal GUI from menus
     const char *warn = s_warning;
     uint8_t menu = s_menu_count;
-    lcd_clear();
+    if (refreshScreen) {
+      lcd_clear();
+    }
     if (menuEvent) {
       m_posVert = menuEvent == EVT_ENTRY_UP ? g_menuPos[g_menuStackPtr] : 0;
       m_posHorz = 0;
@@ -184,5 +182,28 @@ void perMain()
     }
     drawStatusLine();
   }
+
   lcdRefresh();
+
+#if defined(REV9E) && !defined(SIMU)
+  topLcdRefreshStart();
+  setTopFirstTimer(getValue(MIXSRC_FIRST_TIMER+g_model.topLcdTimer));
+  setTopSecondTimer(g_eeGeneral.globalTimer + sessionTimer);
+  setTopRssi(TELEMETRY_RSSI());
+  setTopBatteryValue(g_vbat100mV);
+  setTopBatteryState(GET_TXBATT_BARS(), IS_TXBATT_WARNING());
+  topLcdRefreshEnd();
+#endif
+
+#if defined(REV9E) && !defined(SIMU)
+  bluetoothWakeup();
+#endif
+
+#if defined(PCBTARANIS)
+  if (requestScreenshot) {
+    requestScreenshot = false;
+    writeScreenshot();
+  }
+#endif
+
 }

@@ -36,6 +36,14 @@
 
 #include "../../opentx.h"
 
+const int8_t volumeScale[VOLUME_LEVEL_MAX+1] =
+{
+    0,  2,  4,   6,   8,  10,  13,  17,  22,  27,  33,  40,
+    64, 82, 96, 105, 112, 117, 120, 122, 124, 125, 126, 127
+} ;
+
+#if !defined(SIMU)
+
 void setSampleRate(uint32_t frequency)
 {
   register Tc *ptc ;
@@ -109,13 +117,28 @@ bool dacQueue(AudioBuffer *buffer)
 
 extern "C" void DAC_IRQHandler()
 {
-  AudioBuffer *nextBuffer = audioQueue.getNextFilledBuffer();
-  if (nextBuffer) {
-    DACC->DACC_TNPR = CONVERT_PTR_UINT(nextBuffer->data);
-    DACC->DACC_TNCR = nextBuffer->size/2;
-  }
-  else {
-    dacStop();
+  uint32_t sr = DACC->DACC_ISR;
+  if (sr & DACC_ISR_ENDTX) {
+    AudioBuffer *nextBuffer = audioQueue.getNextFilledBuffer();
+    if (nextBuffer) {
+      // Try the first PDC buffer
+      if ((DACC->DACC_TCR == 0) && (DACC->DACC_TNCR == 0)) {
+        DACC->DACC_TPR = CONVERT_PTR_UINT(nextBuffer->data);
+        DACC->DACC_TCR = nextBuffer->size/2;
+        DACC->DACC_PTCR = DACC_PTCR_TXTEN;
+        return;
+      }
+      // Try the second PDC buffer
+      if (DACC->DACC_TNCR == 0) {
+        DACC->DACC_TNPR = CONVERT_PTR_UINT(nextBuffer->data);
+        DACC->DACC_TNCR = nextBuffer->size/2;
+        DACC->DACC_PTCR = DACC_PTCR_TXTEN;
+        return;
+      }
+    }
+    else {
+      dacStop();
+    }
   }
 }
 
@@ -154,12 +177,6 @@ void audioEnd()
   PMC->PMC_PCER0 &= ~0x40000000L ;		// Disable peripheral clock to DAC
 }
 
-static const int8_t volumeScale[VOLUME_LEVEL_MAX+1] =
-{
-    0,  2,  4,   6,   8,  10,  13,  17,  22,  27,  33,  40,
-    64, 82, 96, 105, 112, 117, 120, 122, 124, 125, 126, 127
-} ;
-
 void setVolume(uint8_t volume)
 {
   volumeRequired = volumeScale[min<uint8_t>(volume, VOLUME_LEVEL_MAX)];
@@ -169,4 +186,5 @@ void setVolume(uint8_t volume)
 }
 
 
+#endif // #if !defined(SIMU)
 

@@ -155,7 +155,7 @@ void MdiChild::on_SimulateTxButton_clicked()
 void MdiChild::checkAndInitModel(int row)
 {
   ModelData &model = radioData.models[row - 1];
-  if (model.isempty()) {
+  if (model.isEmpty()) {
     model.setDefaultValues(row - 1, radioData.generalSettings);
     setModified();
   }
@@ -170,7 +170,7 @@ void MdiChild::generalEdit()
 
 void MdiChild::modelEdit()
 {
-  int row = ui->modelsList->currentRow();
+  int row = getCurrentRow();
 
   if (row == 0){
     generalEdit();
@@ -189,7 +189,7 @@ void MdiChild::modelEdit()
 
 void MdiChild::wizardEdit()
 {
-  int row = ui->modelsList->currentRow();
+  int row = getCurrentRow();
   if (row > 0) {
     checkAndInitModel(row);
     WizardDialog * wizard = new WizardDialog(radioData.generalSettings, row, this);
@@ -203,13 +203,13 @@ void MdiChild::wizardEdit()
 
 void MdiChild::openEditWindow()
 {
-  int row = ui->modelsList->currentRow();
+  int row = getCurrentRow();
   if (row == 0){
     generalEdit();
   }
   else{
     ModelData &model = radioData.models[row - 1];
-    if (model.isempty() && g.useWizard()) {
+    if (model.isEmpty() && g.useWizard()) {
       wizardEdit();
     }
     else {
@@ -282,8 +282,8 @@ bool MdiChild::loadFile(const QString &fileName, bool resetCurrentFile)
         }
       }
 
-      uint8_t eeprom[EESIZE_RLC_MAX];
-      int eeprom_size = HexInterface(inputStream).load(eeprom, EESIZE_RLC_MAX);
+      QByteArray eeprom(EESIZE_MAX, 0);
+      int eeprom_size = HexInterface(inputStream).load((uint8_t *)eeprom.data(), EESIZE_MAX);
       if (!eeprom_size) {
         QMessageBox::critical(this, tr("Error"),
             tr("Invalid EEPROM File %1")
@@ -294,7 +294,7 @@ bool MdiChild::loadFile(const QString &fileName, bool resetCurrentFile)
 
       file.close();
 
-      if (!loadEEprom(radioData, eeprom, eeprom_size)) {
+      if (!loadEEprom(radioData, (uint8_t *)eeprom.data(), eeprom_size)) {
         QMessageBox::critical(this, tr("Error"),
             tr("Invalid EEPROM File %1")
             .arg(fileName));
@@ -388,32 +388,32 @@ bool MdiChild::saveAs(bool isNew)
 
 bool MdiChild::saveFile(const QString &fileName, bool setCurrent)
 {
-    QString myFile;
-    myFile = fileName;
-    if (IS_SKY9X(GetEepromInterface()->getBoard())) {
-      myFile.replace(".eepe", ".bin");
-    }
-    QFile file(myFile);
+  QString myFile;
+  myFile = fileName;
+  if (IS_SKY9X(GetEepromInterface()->getBoard())) {
+    myFile.replace(".eepe", ".bin");
+  }
+  QFile file(myFile);
 
-    int fileType = getFileType(myFile);
+  int fileType = getFileType(myFile);
 
-    uint8_t *eeprom = (uint8_t*)malloc(GetEepromInterface()->getEEpromSize());
-    int eeprom_size = 0;
+  uint8_t *eeprom = (uint8_t*)malloc(GetEepromInterface()->getEEpromSize());
+  int eeprom_size = 0;
 
-    if (fileType != FILE_TYPE_XML) {
-      eeprom_size = GetEepromInterface()->save(eeprom, radioData, GetCurrentFirmware()->getVariantNumber(), 0/*last version*/);
-      if (!eeprom_size) {
-        QMessageBox::warning(this, tr("Error"),tr("Cannot write file %1:\n%2.").arg(myFile).arg(file.errorString()));
-        return false;
-      }
-    }
-
-    if (!file.open(fileType == FILE_TYPE_BIN ? QIODevice::WriteOnly : (QIODevice::WriteOnly | QIODevice::Text))) {
+  if (fileType != FILE_TYPE_XML) {
+    eeprom_size = GetEepromInterface()->save(eeprom, radioData, GetCurrentFirmware()->getVariantNumber(), 0/*last version*/);
+    if (!eeprom_size) {
       QMessageBox::warning(this, tr("Error"),tr("Cannot write file %1:\n%2.").arg(myFile).arg(file.errorString()));
       return false;
     }
+  }
 
-    QTextStream outputStream(&file);
+  if (!file.open(fileType == FILE_TYPE_BIN ? QIODevice::WriteOnly : (QIODevice::WriteOnly | QIODevice::Text))) {
+    QMessageBox::warning(this, tr("Error"),tr("Cannot write file %1:\n%2.").arg(myFile).arg(file.errorString()));
+    return false;
+  }
+
+  QTextStream outputStream(&file);
 
 #if 0
     if (fileType==FILE_TYPE_XML) {
@@ -425,34 +425,34 @@ bool MdiChild::saveFile(const QString &fileName, bool setCurrent)
     }
     else
 #endif
-    if (fileType==FILE_TYPE_HEX || fileType==FILE_TYPE_EEPE) { // write hex
-      if (fileType==FILE_TYPE_EEPE)
-        outputStream << EEPE_EEPROM_FILE_HEADER << "\n";
+  if (fileType==FILE_TYPE_HEX || fileType==FILE_TYPE_EEPE) { // write hex
+    if (fileType==FILE_TYPE_EEPE)
+      outputStream << EEPE_EEPROM_FILE_HEADER << "\n";
 
-      if (!HexInterface(outputStream).save(eeprom, eeprom_size)) {
-          QMessageBox::warning(this, tr("Error"),tr("Cannot write file %1:\n%2.").arg(myFile).arg(file.errorString()));
-          file.close();
-          return false;
-      }
-    }
-    else if (fileType==FILE_TYPE_BIN) // write binary
-    {
-      long result = file.write((char*)eeprom, eeprom_size);
-      if(result!=eeprom_size) {
-        QMessageBox::warning(this, tr("Error"),tr("Error writing file %1:\n%2.").arg(myFile).arg(file.errorString()));
+    if (!HexInterface(outputStream).save(eeprom, eeprom_size)) {
+        QMessageBox::warning(this, tr("Error"),tr("Cannot write file %1:\n%2.").arg(myFile).arg(file.errorString()));
+        file.close();
         return false;
-      }
     }
-    else {
-      QMessageBox::warning(this, tr("Error"),tr("Error writing file %1:\n%2.").arg(myFile).arg("Unknown format"));
+  }
+  else if (fileType==FILE_TYPE_BIN) // write binary
+  {
+    long result = file.write((char*)eeprom, eeprom_size);
+    if(result!=eeprom_size) {
+      QMessageBox::warning(this, tr("Error"),tr("Error writing file %1:\n%2.").arg(myFile).arg(file.errorString()));
       return false;
     }
+  }
+  else {
+    QMessageBox::warning(this, tr("Error"),tr("Error writing file %1:\n%2.").arg(myFile).arg("Unknown format"));
+    return false;
+  }
 
-    free(eeprom); // TODO free in all cases ...
-    file.close();
-    if(setCurrent) setCurrentFile(myFile);
+  free(eeprom); // TODO free in all cases ...
+  file.close();
+  if(setCurrent) setCurrentFile(myFile);
 
-    return true;
+  return true;
 }
 
 QString MdiChild::userFriendlyCurrentFile()
@@ -529,8 +529,8 @@ void MdiChild::writeEeprom()  // write to Tx
 
 void MdiChild::simulate()
 {
-  if (ui->modelsList->currentRow() >= 1) {
-    startSimulation(this, radioData, ui->modelsList->currentRow()-1);
+  if (getCurrentRow() > 0) {
+    startSimulation(this, radioData, getCurrentRow()-1);
   }
 }
 
@@ -539,10 +539,10 @@ void MdiChild::print(int model, QString filename)
   PrintDialog * pd = NULL;
 
   if (model>=0 && !filename.isEmpty()) {
-    pd = new PrintDialog(this, GetCurrentFirmware()/*firmware*/, &radioData.generalSettings, &radioData.models[model], filename);
+    pd = new PrintDialog(this, GetCurrentFirmware()/*firmware*/, radioData.generalSettings, radioData.models[model], filename);
   }
-  else if (ui->modelsList->currentRow() > 0) {
-    pd = new PrintDialog(this, GetCurrentFirmware()/*firmware*/, &radioData.generalSettings, &radioData.models[ui->modelsList->currentRow()-1]);
+  else if (getCurrentRow() > 0) {
+    pd = new PrintDialog(this, GetCurrentFirmware()/*firmware*/, radioData.generalSettings, radioData.models[getCurrentRow()-1]);
   }
     
   if (pd) {
@@ -561,49 +561,54 @@ void MdiChild::setEEpromAvail(int eavail)
   EEPromAvail=eavail;
 }
 
+int MdiChild::getCurrentRow() const
+{
+  return ui->modelsList->currentRow();
+}
+
 bool MdiChild::loadBackup()
 {
-    QString fileName = QFileDialog::getOpenFileName(this, tr("Open backup Models and Settings file"), g.eepromDir(),tr(EEPROM_FILES_FILTER));
-    if (fileName.isEmpty())
-      return false;
-    QFile file(fileName);
+  QString fileName = QFileDialog::getOpenFileName(this, tr("Open backup Models and Settings file"), g.eepromDir(),tr(EEPROM_FILES_FILTER));
+  if (fileName.isEmpty())
+    return false;
+  QFile file(fileName);
 
-    if (!file.exists()) {
-      QMessageBox::critical(this, tr("Error"), tr("Unable to find file %1!").arg(fileName));
-      return false;
-    }
-    if(ui->modelsList->currentRow()<1) return false;
-    int index=ui->modelsList->currentRow()-1;
+  if (!file.exists()) {
+    QMessageBox::critical(this, tr("Error"), tr("Unable to find file %1!").arg(fileName));
+    return false;
+  }
+  if(getCurrentRow() < 1) return false;
+  int index = getCurrentRow() - 1;
 
-    int eeprom_size = file.size();
-    if (!file.open(QFile::ReadOnly)) {  //reading binary file   - TODO HEX support
-        QMessageBox::critical(this, tr("Error"),
-                              tr("Error opening file %1:\n%2.")
-                              .arg(fileName)
-                              .arg(file.errorString()));
-        return false;
-    }
-    QByteArray eeprom(eeprom_size, 0);
-    long result = file.read((char*)eeprom.data(), eeprom_size);
-    file.close();
+  int eeprom_size = file.size();
+  if (!file.open(QFile::ReadOnly)) {  //reading binary file   - TODO HEX support
+    QMessageBox::critical(this, tr("Error"),
+                          tr("Error opening file %1:\n%2.")
+                          .arg(fileName)
+                          .arg(file.errorString()));
+    return false;
+  }
+  QByteArray eeprom(eeprom_size, 0);
+  long result = file.read((char*)eeprom.data(), eeprom_size);
+  file.close();
 
-    if (result != eeprom_size) {
-        QMessageBox::critical(this, tr("Error"),
-                              tr("Error reading file %1:\n%2.")
-                              .arg(fileName)
-                              .arg(file.errorString()));
+  if (result != eeprom_size) {
+    QMessageBox::critical(this, tr("Error"),
+                          tr("Error reading file %1:\n%2.")
+                          .arg(fileName)
+                          .arg(file.errorString()));
 
-        return false;
-    }
+    return false;
+  }
 
-    if (!::loadBackup(radioData, (uint8_t *)eeprom.data(), eeprom_size, index)) {
-      QMessageBox::critical(this, tr("Error"),
-          tr("Invalid binary backup File %1")
-          .arg(fileName));
-      return false;
-    }
+  if (!::loadBackup(radioData, (uint8_t *)eeprom.data(), eeprom_size, index)) {
+    QMessageBox::critical(this, tr("Error"),
+        tr("Invalid binary backup File %1")
+        .arg(fileName));
+    return false;
+  }
 
-    ui->modelsList->refreshList();
+  ui->modelsList->refreshList();
 
-    return true;
+  return true;
 }

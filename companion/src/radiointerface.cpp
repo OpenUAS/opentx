@@ -38,7 +38,7 @@ QStringList getAvrdudeArgs(const QString &cmd, const QString &filename)
   QString mcu   = bcd.getMCU();
 
   args << "-c" << programmer << "-p";
-  if (GetEepromInterface()->getBoard() == BOARD_GRUVIN9X)
+  if (IS_2560(GetEepromInterface()->getBoard()))
     args << "m2560";
   else if (GetEepromInterface()->getBoard() == BOARD_M128)
     args << "m128";
@@ -248,17 +248,17 @@ bool readFirmware(const QString &filename, ProgressWidget *progress)
     return false;
   }
 
-  g.flashDir(QFileInfo(filename).dir().absolutePath());
-
   if (IS_ARM(GetCurrentFirmware()->getBoard())) {
     QString path = findMassstoragePath("FIRMWARE.BIN");
     if (!path.isEmpty()) {
+      qDebug() << "readFirmware: reading" << path << "into" << filename;
       CopyProcess copyProcess(path, filename, progress);
       result = copyProcess.run();
     }
   }
 
   if (result == false) {
+    qDebug() << "readFirmware: reading" << filename << "with" << getRadioInterfaceCmd() << getReadFirmwareArgs(filename);
     FlashProcess flashProcess(getRadioInterfaceCmd(), getReadFirmwareArgs(filename), progress);
     result = flashProcess.run();
   }
@@ -275,11 +275,13 @@ bool writeFirmware(const QString &filename, ProgressWidget *progress)
   if (IS_ARM(GetCurrentFirmware()->getBoard())) {
     QString path = findMassstoragePath("FIRMWARE.BIN");
     if (!path.isEmpty()) {
+      qDebug() << "writeFirmware: writing" << path << "from" << filename;
       CopyProcess copyProcess(filename, path, progress);
       return copyProcess.run();
     }
   }
 
+  qDebug() << "writeFirmware: writing" << filename << "with" << getRadioInterfaceCmd() << getWriteFirmwareArgs(filename);
   FlashProcess flashProcess(getRadioInterfaceCmd(), getWriteFirmwareArgs(filename), progress);
   return flashProcess.run();
 }
@@ -359,12 +361,30 @@ bool writeEeprom(const QString &filename, ProgressWidget *progress)
   return false;
 }
 
+#if defined WIN32 || !defined __GNUC__
+bool isRemovableMedia(const QString & vol)
+{
+  char szDosDeviceName[MAX_PATH];
+  QString volume = vol;
+  UINT driveType = GetDriveType(volume.replace("/", "\\").toLatin1());
+  if (driveType != DRIVE_REMOVABLE)
+    return false;
+  QueryDosDevice(volume.replace("/", "").toLatin1(), szDosDeviceName, MAX_PATH);
+  if (strstr(szDosDeviceName, "\\Floppy") != NULL) { // it's a floppy
+    return false;
+  }
+  return true;
+}
+#endif
+
 QString findMassstoragePath(const QString &filename)
 {
   QString temppath;
   QStringList drives;
   QString eepromfile;
   QString fsname;
+  static QStringList blacklist;
+
 #if defined WIN32 || !defined __GNUC__
   foreach(QFileInfo drive, QDir::drives()) {
     WCHAR szVolumeName[256] ;
@@ -372,14 +392,20 @@ QString findMassstoragePath(const QString &filename)
     DWORD dwSerialNumber = 0;
     DWORD dwMaxFileNameLength=256;
     DWORD dwFileSystemFlags=0;
-    bool ret = GetVolumeInformationW( (WCHAR *) drive.absolutePath().utf16(),szVolumeName,256,&dwSerialNumber,&dwMaxFileNameLength,&dwFileSystemFlags,szFileSystemName,256);
-    if (ret) {
-      QString vName = QString::fromUtf16 ( (const ushort *) szVolumeName) ;
-      temppath = drive.absolutePath();
-      eepromfile = temppath;
-      eepromfile.append("/" + filename);
-      if (QFile::exists(eepromfile)) {
-        return eepromfile;
+    if (!blacklist.contains(drive.absolutePath())) {
+      if (!isRemovableMedia( drive.absolutePath() )) {
+        blacklist.append(drive.absolutePath());
+      } else {
+        bool ret = GetVolumeInformationW( (WCHAR *) drive.absolutePath().utf16(),szVolumeName,256,&dwSerialNumber,&dwMaxFileNameLength,&dwFileSystemFlags,szFileSystemName,256);
+        if (ret) {
+          QString vName = QString::fromUtf16 ( (const ushort *) szVolumeName) ;
+          temppath = drive.absolutePath();
+          eepromfile = temppath;
+          eepromfile.append("/" + filename);
+          if (QFile::exists(eepromfile)) {
+            return eepromfile;
+          }
+        }
       }
     }
   }
@@ -394,7 +420,9 @@ QString findMassstoragePath(const QString &filename)
       eepromfile.append("/" + filename);
 #if !defined __APPLE__
       QString fstype = entry->me_type;
-      if (QFile::exists(eepromfile) && fstype.contains("fat") ) {
+      // qDebug() << eepromfile;
+      
+      if (fstype.contains("fat") && QFile::exists(eepromfile)) {
 #else
       if (QFile::exists(eepromfile)) {
 #endif

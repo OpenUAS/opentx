@@ -42,11 +42,18 @@
 #include "opentx.h"
 #include <time.h>
 #include <ctype.h>
+#if defined(SIMU_AUDIO)
+  #include <SDL.h>
+#endif
 
-#define W2 LCD_W*2
-#define H2 LCD_H*2
+#if LCD_W > 212
+  #define LCD_ZOOM 1
+#else
+  #define LCD_ZOOM 2
+#endif
 
-int g_snapshot_idx = 0;
+#define W2 LCD_W*LCD_ZOOM
+#define H2 LCD_H*LCD_ZOOM
 
 class Open9xSim: public FXMainWindow
 {
@@ -61,6 +68,7 @@ class Open9xSim: public FXMainWindow
     void makeSnapshot(const FXDrawable* drawable);
     void doEvents();
     void refreshDisplay();
+    void setPixel(int x, int y, FXColor color);
 
   private:
     FXImage       *bmp;
@@ -87,6 +95,10 @@ Open9xSim::Open9xSim(FXApp* a):
   firstTime = true;
   memset(displayBuf, 0, DISPLAY_BUFER_SIZE);
   bmp = new FXPPMImage(getApp(),NULL,IMAGE_OWNED|IMAGE_KEEP|IMAGE_SHMI|IMAGE_SHMP, W2, H2);
+
+#if defined(SIMU_AUDIO)
+  SDL_Init(SDL_INIT_AUDIO);
+#endif
 
   FXHorizontalFrame *hf11=new FXHorizontalFrame(this,LAYOUT_CENTER_X);
   FXHorizontalFrame *hf1=new FXHorizontalFrame(this,LAYOUT_FILL_X);
@@ -131,6 +143,7 @@ Open9xSim::Open9xSim(FXApp* a):
 Open9xSim::~Open9xSim()
 {
   StopMainThread();
+  StopAudioThread();
   StopEepromThread();
   
   delete bmp;
@@ -144,6 +157,10 @@ Open9xSim::~Open9xSim()
   }
 
   delete bmf;
+
+#if defined(SIMU_AUDIO)
+  SDL_Quit();
+#endif
 }
 
 void Open9xSim::makeSnapshot(const FXDrawable* drawable)
@@ -192,7 +209,7 @@ long Open9xSim::onKeypress(FXObject*,FXSelector,void*v)
 {
   FXEvent *evt=(FXEvent*)v;
   // printf("keypress %x\n", evt->code);
-  if (evt->code=='s'){
+  if (evt->code=='s') {
     makeSnapshot(bmf);
   }
   return 0;
@@ -207,7 +224,7 @@ long Open9xSim::onTimeout(FXObject*, FXSelector, void*)
       KEY_Page_Down, KEY_PAGE,
       KEY_Return,    KEY_ENTER,
       KEY_BackSpace, KEY_EXIT,
-      KEY_Up,     KEY_PLUS,
+      KEY_Up,        KEY_PLUS,
       KEY_Down,      KEY_MINUS,
 #else
       KEY_Return,    KEY_MENU,
@@ -271,8 +288,9 @@ long Open9xSim::onTimeout(FXObject*, FXSelector, void*)
     if (getApp()->getKeyState(KEY_##key)) { \
       if (!state##key) { \
         state_##swtch = (state_##swtch+inc_##swtch); \
-        if (state_##swtch == 1+states) inc_##swtch = -1; \
-        else if (state_##swtch == 2) inc_##swtch = 1; \
+        if (state_##swtch >= 1+states) inc_##swtch = -1; \
+        else if (state_##swtch <= 2) inc_##swtch = 1; \
+        /* TRACE("switch " #swtch ": state: %d, inc: %d", state_##swtch, inc_##swtch); */ \
         state##key = true; \
       } \
     } \
@@ -287,19 +305,19 @@ long Open9xSim::onTimeout(FXObject*, FXSelector, void*)
     SWITCH_KEY(C, 2, 3);
     SWITCH_KEY(D, 3, 3);
     SWITCH_KEY(E, 4, 3);
-    SWITCH_KEY(F, 5, 3);
+    SWITCH_KEY(F, 5, 2);
     SWITCH_KEY(G, 6, 3);
-    SWITCH_KEY(H, 7, 3);
-    // SWITCH_KEY(I, 8, 3);
-    // SWITCH_KEY(J, 9, 3);
-    // SWITCH_KEY(K, 10, 3);
-    // SWITCH_KEY(L, 11, 3);
-    // SWITCH_KEY(M, 12, 3);
-    // SWITCH_KEY(N, 13, 3);
-    // SWITCH_KEY(O, 14, 3);
-    // SWITCH_KEY(P, 15, 3);
-    // SWITCH_KEY(Q, 16, 3);
-    // SWITCH_KEY(R, 17, 3);
+    SWITCH_KEY(H, 7, 2);
+    SWITCH_KEY(I, 8, 3);
+    SWITCH_KEY(J, 9, 3);
+    SWITCH_KEY(K, 10, 3);
+    SWITCH_KEY(L, 11, 3);
+    SWITCH_KEY(M, 12, 3);
+    SWITCH_KEY(N, 13, 3);
+    SWITCH_KEY(O, 14, 3);
+    SWITCH_KEY(P, 15, 3);
+    SWITCH_KEY(Q, 16, 3);
+    SWITCH_KEY(R, 17, 3);
 #elif defined(PCBTARANIS)
     SWITCH_KEY(A, 0, 3);
     SWITCH_KEY(B, 1, 3);
@@ -327,18 +345,27 @@ long Open9xSim::onTimeout(FXObject*, FXSelector, void*)
 }
 
 #if defined(PCBTARANIS)
-#define BL_COLOR FXRGB(47,123,227)
+  #define BL_COLOR FXRGB(47, 123, 227)
 #else
-#define BL_COLOR FXRGB(150,200,152)
+  #define BL_COLOR FXRGB(150, 200, 152)
 #endif
+
+void Open9xSim::setPixel(int x, int y, FXColor color)
+{
+  for (int i=0; i<LCD_ZOOM; ++i) {
+    for (int j=0; j<LCD_ZOOM; ++j) {
+      bmp->setPixel(LCD_ZOOM*x+i, LCD_ZOOM*y+j, color);
+    }
+  }
+}
 
 void Open9xSim::refreshDisplay()
 {
   if (lcd_refresh) {
     lcd_refresh = false;
-    FXColor offColor = IS_BACKLIGHT_ON() ? BL_COLOR : FXRGB(200,200,200);
-#if !defined(PCBTARANIS)
-    FXColor onColor = FXRGB(0,0,0);
+    FXColor offColor = isBacklightEnable() ? BL_COLOR : FXRGB(200, 200, 200);
+#if LCD_W == 128
+    FXColor onColor = FXRGB(0, 0, 0);
 #endif
     for (int x=0; x<LCD_W; x++) {
       for (int y=0; y<LCD_H; y++) {
@@ -347,28 +374,19 @@ void Open9xSim::refreshDisplay()
         uint8_t z = (y & 1) ? (*p >> 4) : (*p & 0x0F);
         if (z) {
           FXColor color;
-          if (IS_BACKLIGHT_ON())
+          if (isBacklightEnable())
             color = FXRGB(47-(z*47)/15, 123-(z*123)/15, 227-(z*227)/15);
           else
             color = FXRGB(200-(z*200)/15, 200-(z*200)/15, 200-(z*200)/15);
-          bmp->setPixel(2*x, 2*y, color);
-          bmp->setPixel(2*x+1, 2*y, color);
-          bmp->setPixel(2*x, 2*y+1, color);
-          bmp->setPixel(2*x+1, 2*y+1, color);
+          setPixel(x, y, color);
         }
 #else
         if (lcd_buf[x+(y/8)*LCD_W] & (1<<(y%8))) {
-          bmp->setPixel(2*x, 2*y, onColor);
-          bmp->setPixel(2*x+1, 2*y, onColor);
-          bmp->setPixel(2*x, 2*y+1, onColor);
-          bmp->setPixel(2*x+1, 2*y+1, onColor);
+          setPixel(x, y, onColor);
         }
 #endif
         else {
-          bmp->setPixel(2*x, 2*y, offColor);
-          bmp->setPixel(2*x+1, 2*y, offColor);
-          bmp->setPixel(2*x, 2*y+1, offColor);
-          bmp->setPixel(2*x+1, 2*y+1, offColor);
+          setPixel(x, y, offColor);
         }
       }
     }
@@ -426,13 +444,11 @@ int main(int argc,char **argv)
 
   printf("Model size = %d\n", (int)sizeof(g_model));
 
-  StartEepromThread(argc >= 2 ? argv[1] : "eeprom.bin");
-  StartMainThread();
+  simuInit();
 
-#if defined(PCBTARANIS)
-  simuSetSwitch(0, 0);
-  simuSetSwitch(1, 0);
-#endif
+  StartEepromThread(argc >= 2 ? argv[1] : "eeprom.bin");
+  StartAudioThread();
+  StartMainThread();
 
   return application.run();
 }

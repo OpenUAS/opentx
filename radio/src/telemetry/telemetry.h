@@ -85,20 +85,22 @@ class TelemetryItem
     };
 
     union {
-      int32_t  valueMin;             // min store
+      int32_t  valueMin;        // min store
       uint32_t pilotLongitude;
     };
 
     union {
-      int32_t  valueMax;             // max store
+      int32_t  valueMax;        // max store
       uint32_t pilotLatitude;
     };
 
-    uint8_t lastReceived;    // for detection of sensor loss
+    uint8_t lastReceived;       // for detection of sensor loss
 
     union {
-      int32_t  offsetAuto;
-      int32_t  filterValues[TELEMETRY_AVERAGE_COUNT];
+      struct {
+        int32_t  offsetAuto;
+        int32_t  filterValues[TELEMETRY_AVERAGE_COUNT];
+      } std;
       struct {
         uint16_t prescale;
       } consumption;
@@ -162,7 +164,7 @@ class TelemetryItem
     void gpsReceived();
 };
 
-extern TelemetryItem telemetryItems[TELEM_VALUES_MAX];
+extern TelemetryItem telemetryItems[MAX_SENSORS];
 
 inline bool isTelemetryFieldAvailable(int index)
 {
@@ -175,9 +177,7 @@ inline bool isTelemetryFieldComparisonAvailable(int index)
   TelemetrySensor & sensor = g_model.telemetrySensors[index];
   if (sensor.type == TELEM_TYPE_CALCULATED)
     return true;
-  if (sensor.unit == UNIT_GPS)
-    return false;
-  if (sensor.unit == UNIT_DATETIME)
+  if (sensor.unit >= UNIT_DATETIME)
     return false;
   return (sensor.id != 0);
 }
@@ -185,10 +185,14 @@ inline bool isTelemetryFieldComparisonAvailable(int index)
 void setTelemetryValue(TelemetryProtocol protocol, uint16_t id, uint8_t instance, int32_t value, uint32_t unit, uint32_t prec);
 void delTelemetryIndex(uint8_t index);
 int availableTelemetryIndex();
+int lastUsedTelemetryIndex();
 int32_t getTelemetryValue(uint8_t index, uint8_t & prec);
 int32_t convertTelemetryValue(int32_t value, uint8_t unit, uint8_t prec, uint8_t destUnit, uint8_t destPrec);
 
 void frskySportSetDefault(int index, uint16_t type, uint8_t instance);
 void frskyDSetDefault(int index, uint16_t id);
+
+#define IS_DISTANCE_UNIT(unit)         ((unit) == UNIT_METERS || (unit) == UNIT_FEET)
+#define IS_SPEED_UNIT(unit)            ((unit) >= UNIT_KTS && (unit) <= UNIT_MPH)
 
 #endif

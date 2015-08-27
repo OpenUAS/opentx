@@ -1,6 +1,6 @@
 /*
  * Author - Kjell Kernen
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -12,7 +12,7 @@
  *
  */
 
-// All temporary and permanent global variables are defined here to make 
+// All temporary and permanent global variables are defined here to make
 // initialization and storage safe and visible.
 // Do not access variables in QSettings directly, it is not type safe!
 
@@ -24,8 +24,8 @@
 #include <QString>
 #include <QSettings>
 
-#define COMPANY "OpenTX Companion"
-#define PRODUCT "OpenTX"
+#define COMPANY "OpenTX"
+#define PRODUCT "Companion 2.1"
 
 #define MAX_PROFILES 15
 #define MAX_JOYSTICKS 8
@@ -53,7 +53,7 @@ class CompStoreObj
     void getset( QString &string, const QString tag, const QString def, const QString group1="", const QString group2="" );
     void getset( bool &truth, const QString tag, const bool def, const QString group1="", const QString group2="" );
     void getset( int &number, const QString tag, const int def, const QString group1="", const QString group2="" );
-}; 
+};
 
 class FwRevision: protected CompStoreObj
 {
@@ -107,8 +107,11 @@ class Profile: protected CompStoreObj
     QString _fwType;
     QString _name;
     QString _sdPath;
+    int     _volumeGain;
+    QString _pBackupDir;
     QString _splashFile;
     bool    _burnFirmware;
+    bool    _penableBackup;
     bool    _renameFwFiles;
     int     _channelOrder;
     int     _defaultMode;
@@ -127,6 +130,8 @@ class Profile: protected CompStoreObj
     int     _ppmMultiplier;
     int     _vBatCalib;
     int     _vBatWarn;
+    int     _vBatMin;
+    int     _vBatMax;
 
   public:
     // All the get definitions
@@ -134,9 +139,12 @@ class Profile: protected CompStoreObj
     QString fwType() const;
     QString name() const;
     QString sdPath() const;
+    int     volumeGain() const;
+    QString pBackupDir() const;
     QString splashFile() const;
     bool    burnFirmware() const;
     bool    renameFwFiles() const;
+    bool    penableBackup() const;
     int     channelOrder() const;
     int     defaultMode() const;
 
@@ -153,15 +161,20 @@ class Profile: protected CompStoreObj
     int     ppmMultiplier() const;
     int     vBatCalib() const;
     int     vBatWarn() const;
+    int     vBatMin() const;
+    int     vBatMax() const;
 
     // All the set definitions
     void name          (const QString);
     void fwName        (const QString);
     void fwType        (const QString);
+    void volumeGain    (const int);
     void sdPath        (const QString);
+    void pBackupDir    (const QString);
     void splashFile    (const QString);
     void burnFirmware  (const bool);
     void renameFwFiles (const bool);
+    void penableBackup (const bool);
     void channelOrder  (const int);
     void defaultMode   (const int);
 
@@ -178,6 +191,8 @@ class Profile: protected CompStoreObj
     void ppmMultiplier (const int);
     void vBatCalib     (const int);
     void vBatWarn      (const int);
+    void vBatMin       (const int);
+    void vBatMax       (const int);
 
     Profile();
     Profile& operator=(const Profile&);
@@ -200,6 +215,9 @@ class AppData: protected CompStoreObj
   BOOL_PROPERTY(enableBackup, false)
   BOOL_PROPERTY(outputDisplayDetails, false)
   BOOL_PROPERTY(backupOnFlash, true)
+  BOOL_PROPERTY(checkHardwareCompatibility, true)
+  BOOL_PROPERTY(useCompanionNightlyBuilds, false)
+  BOOL_PROPERTY(useFirmwareNightlyBuilds, false)
 
   // All the global variables
   public:
@@ -224,6 +242,7 @@ class AppData: protected CompStoreObj
     QString _programmer;
     QString _sambaLocation;
     QString _sambaPort;
+    QString _lastSimulator;
 
     QString _backupDir;
     QString _gePath;
@@ -268,12 +287,13 @@ class AppData: protected CompStoreObj
     QString avrdudeLocation();
     QString dfuArguments();
     QString dfuLocation();
-    QString lastFw();  
+    QString lastFw();
     QString locale();
     QString mcu();
     QString programmer();
     QString sambaLocation();
     QString sambaPort();
+    QString lastSimulator();
 
     QString backupDir();
     QString gePath();
@@ -323,6 +343,7 @@ class AppData: protected CompStoreObj
     void programmer      (const QString);
     void sambaLocation   (const QString);
     void sambaPort       (const QString);
+    void lastSimulator   (const QString);
 
     void backupDir       (const QString);
     void gePath          (const QString);

@@ -11,6 +11,8 @@ ui(new Ui::ProgressWidget)
 {
   ui->setupUi(this);
   ui->info->hide();
+  ui->checkBox->hide();
+  ui->textEdit->hide();
 
 #ifdef __APPLE__
   QFont newFont("Courier", 13);
@@ -20,16 +22,16 @@ ui(new Ui::ProgressWidget)
   QFont newFont("Courier", 9);
   ui->textEdit->setFont(newFont);
 #endif
-
-  if (g.outputDisplayDetails())
-    ui->checkBox->setChecked(true);
-  else
-    ui->textEdit->setVisible(false);
 }
 
 ProgressWidget::~ProgressWidget()
 {
   delete ui;
+}
+
+void ProgressWidget::stop()
+{
+  emit stopped();
 }
 
 void ProgressWidget::forceOpen()
@@ -49,6 +51,11 @@ void ProgressWidget::setMaximum(int value)
   ui->progressBar->setMaximum(value);
 }
 
+int ProgressWidget::maximum()
+{
+  return ui->progressBar->maximum();
+}
+
 void ProgressWidget::setValue(int value)
 {
   ui->progressBar->setValue(value);
@@ -56,6 +63,13 @@ void ProgressWidget::setValue(int value)
 
 void ProgressWidget::addText(const QString &text)
 {
+  ui->checkBox->setVisible(true);
+
+  if (g.outputDisplayDetails()) {
+    ui->checkBox->setChecked(true);
+    ui->textEdit->setVisible(true);
+  }
+
   QTextCursor cursor(ui->textEdit->textCursor());
 
   // is the scrollbar at the end?
@@ -67,6 +81,11 @@ void ProgressWidget::addText(const QString &text)
   if (atEnd) {
     ui->textEdit->verticalScrollBar()->triggerAction(QAbstractSlider::SliderToMaximum);
   }
+}
+
+QString ProgressWidget::getText()
+{
+  return ui->textEdit->toPlainText();
 }
 
 void ProgressWidget::setProgressColor(const QColor &color)

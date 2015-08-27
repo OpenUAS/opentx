@@ -41,13 +41,16 @@ AppPreferencesDialog::~AppPreferencesDialog()
 
 void AppPreferencesDialog::writeValues()
 {
-  g.autoCheckApp(ui->startupCheck_companion9x->isChecked());
-  g.autoCheckFw(ui->startupCheck_fw->isChecked());
+  g.useCompanionNightlyBuilds(ui->useCompanionNightlyBuilds->isChecked());
+  g.autoCheckApp(ui->autoCheckCompanion->isChecked());
+  g.useFirmwareNightlyBuilds(ui->useFirmwareNightlyBuilds->isChecked());
+  g.autoCheckFw(ui->autoCheckFirmware->isChecked());
   g.showSplash(ui->showSplash->isChecked());
   g.simuSW(ui->simuSW->isChecked());
   g.useWizard(ui->modelWizard_CB->isChecked());
   g.historySize(ui->historySize->value());
   g.backLight(ui->backLightColor->currentIndex());
+  g.profile[g.id()].volumeGain(round(ui->volumeGain->value() * 10.0));
   g.libDir(ui->libraryPath->text());
   g.gePath(ui->ge_lineedit->text());
   g.embedSplashes(ui->splashincludeCB->currentIndex());
@@ -66,6 +69,8 @@ void AppPreferencesDialog::writeValues()
   g.profile[g.id()].renameFwFiles(ui->renameFirmware->isChecked());
   g.profile[g.id()].burnFirmware(ui->burnFirmware->isChecked());
   g.profile[g.id()].sdPath(ui->sdPath->text());
+  g.profile[g.id()].pBackupDir(ui->profilebackupPath->text());
+  g.profile[g.id()].penableBackup(ui->pbackupEnable->isChecked());
   g.profile[g.id()].splashFile(ui->SplashFileName->text());
 
   // The profile name may NEVER be empty
@@ -104,11 +109,19 @@ void AppPreferencesDialog::initSettings()
     ui->snapshotPath->setDisabled(true);
     ui->snapshotPathButton->setDisabled(true);
   }
-  ui->startupCheck_companion9x->setChecked(g.autoCheckApp());
-  ui->startupCheck_fw->setChecked(g.autoCheckFw());
+#if defined(ALLOW_NIGHTLY_BUILDS)
+  ui->useCompanionNightlyBuilds->setChecked(g.useCompanionNightlyBuilds());
+  ui->useFirmwareNightlyBuilds->setChecked(g.useFirmwareNightlyBuilds());
+#else
+  ui->useCompanionNightlyBuilds->hide();
+  ui->useFirmwareNightlyBuilds->hide();
+#endif
+  ui->autoCheckCompanion->setChecked(g.autoCheckApp());
+  ui->autoCheckFirmware->setChecked(g.autoCheckFw());
   ui->showSplash->setChecked(g.showSplash());
   ui->historySize->setValue(g.historySize());
   ui->backLightColor->setCurrentIndex(g.backLight());
+  ui->volumeGain->setValue(g.profile[g.id()].volumeGain() / 10.0);
 
   if (IS_TARANIS(GetCurrentFirmware()->getBoard())) {
     ui->backLightColor->setEnabled(false);
@@ -164,6 +177,18 @@ void AppPreferencesDialog::initSettings()
   ui->stickmodeCB->setCurrentIndex(g.profile[g.id()].defaultMode());
   ui->renameFirmware->setChecked(g.profile[g.id()].renameFwFiles());
   ui->sdPath->setText(g.profile[g.id()].sdPath());
+  if (!g.profile[g.id()].pBackupDir().isEmpty()) {
+    if (QDir(g.profile[g.id()].pBackupDir()).exists()) {
+      ui->profilebackupPath->setText(g.profile[g.id()].pBackupDir());
+      ui->pbackupEnable->setEnabled(true);
+      ui->pbackupEnable->setChecked(g.profile[g.id()].penableBackup());
+    } else {
+      ui->pbackupEnable->setDisabled(true);
+    }
+  } else {
+      ui->pbackupEnable->setDisabled(true);
+  }
+
   ui->profileNameLE->setText(g.profile[g.id()].name());
   ui->SplashFileName->setText(g.profile[g.id()].splashFile());
 
@@ -224,8 +249,17 @@ void AppPreferencesDialog::on_backupPathButton_clicked()
   if (!fileName.isEmpty()) {
     g.backupDir(fileName);
     ui->backupPath->setText(fileName);
+    ui->backupEnable->setEnabled(true);
   }
-  ui->backupEnable->setEnabled(true);
+}
+
+void AppPreferencesDialog::on_ProfilebackupPathButton_clicked()
+{
+  QString fileName = QFileDialog::getExistingDirectory(this,tr("Select your Models and Settings backup folder"), g.backupDir());
+  if (!fileName.isEmpty()) {
+    ui->profilebackupPath->setText(fileName);
+    ui->pbackupEnable->setEnabled(true);
+  }
 }
 
 void AppPreferencesDialog::on_ge_pathButton_clicked()

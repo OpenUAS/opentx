@@ -89,17 +89,13 @@ enum EnumKeys {
   SW_SE1,
   SW_SE2,
   SW_SF0,
-#if defined(REV9E)
   SW_SF1,
-#endif
   SW_SF2,
   SW_SG0,
   SW_SG1,
   SW_SG2,
   SW_SH0,
-#if defined(REV9E)
   SW_SH1,
-#endif
   SW_SH2,
 #if defined(REV9E)
   SW_SI0,
@@ -150,12 +146,6 @@ enum EnumKeys {
   SW_ID0=SW_BASE,
   SW_ID1,
   SW_ID2,
-#if defined(EXTRA_3POS)
-  SW_ID3,
-  SW_ID4,
-  SW_ID5,
-#endif
-
   SW_THR,
   SW_RUD,
   SW_ELE,
@@ -207,8 +197,13 @@ enum EnumKeys {
   #define IS_ROTARY_EVENT(evt)  (0)
   #define CASE_EVT_ROTARY_BREAK /*case EVT_KEY_BREAK(KEY_ENTER):*/
   #define CASE_EVT_ROTARY_LONG  /*case EVT_KEY_LONG(KEY_ENTER):*/
-  #define CASE_EVT_ROTARY_LEFT  case EVT_KEY_FIRST(KEY_MOVE_DOWN): case EVT_KEY_REPT(KEY_MOVE_DOWN):
-  #define CASE_EVT_ROTARY_RIGHT case EVT_KEY_FIRST(KEY_MOVE_UP): case EVT_KEY_REPT(KEY_MOVE_UP):
+  #if defined(REV9E) && !defined(SIMU)
+    #define CASE_EVT_ROTARY_LEFT  case EVT_KEY_FIRST(KEY_MOVE_UP): case EVT_KEY_REPT(KEY_MOVE_UP):
+    #define CASE_EVT_ROTARY_RIGHT case EVT_KEY_FIRST(KEY_MOVE_DOWN): case EVT_KEY_REPT(KEY_MOVE_DOWN):
+  #else
+    #define CASE_EVT_ROTARY_LEFT  case EVT_KEY_FIRST(KEY_MOVE_DOWN): case EVT_KEY_REPT(KEY_MOVE_DOWN):
+    #define CASE_EVT_ROTARY_RIGHT case EVT_KEY_FIRST(KEY_MOVE_UP): case EVT_KEY_REPT(KEY_MOVE_UP):
+  #endif
 #elif defined(ROTARY_ENCODER_NAVIGATION)
   #define IS_ROTARY_LEFT(evt)   (evt == EVT_ROTARY_LEFT)
   #define IS_ROTARY_RIGHT(evt)  (evt == EVT_ROTARY_RIGHT)

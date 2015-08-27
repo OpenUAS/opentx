@@ -65,9 +65,7 @@ inline void boardInit()
   DDRL = 0x80;  PORTL = 0xff; // 7: Hold_PWR_On (1=On, default Off), 6:Jack_Presence_TTL, 5-0: User Button inputs
 #endif
 
-  ADMUX=ADC_VREF_TYPE;
-  ADCSRA=0x85; // ADC enabled, pre-scaler division=32 (no interrupt, no auto-triggering)
-  ADCSRB=(1<<MUX5);
+  adcInit();
 
   /**** Set up timer/counter 0 ****/
   /** Move old 64A Timer0 functions to Timer2 and use WGM on OC0(A) (PB7) for spkear tone output **/
@@ -222,20 +220,6 @@ bool switchState(EnumKeys enuk)
       result = !(PINB & (1<<INP_B_ID2));
       break;
 
-#if 0
-    case SW_ID3:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] < 0);
-      break;
-
-    case SW_ID4:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] == 0);
-      break;
-
-    case SW_ID5:
-      result = (calibratedStick[POT1+EXTRA_3POS-1] > 0);
-      break;
-#endif
-
     case SW_GEA:
       result = PING & (1<<INP_G_Gear);
       break;
@@ -256,14 +240,14 @@ bool switchState(EnumKeys enuk)
 }
 
 static const pm_uchar crossTrim[] PROGMEM = {
-  1<<INP_J_TRM_LH_DWN,
-  1<<INP_J_TRM_LH_UP,
-  1<<INP_J_TRM_LV_DWN,
-  1<<INP_J_TRM_LV_UP,
-  1<<INP_J_TRM_RV_DWN,
-  1<<INP_J_TRM_RV_UP,
-  1<<INP_J_TRM_RH_DWN,
-  1<<INP_J_TRM_RH_UP
+  TRIMS_GPIO_PIN_LHL,
+  TRIMS_GPIO_PIN_LHR,
+  TRIMS_GPIO_PIN_LVD,
+  TRIMS_GPIO_PIN_LVU,
+  TRIMS_GPIO_PIN_RVD,
+  TRIMS_GPIO_PIN_RVU,
+  TRIMS_GPIO_PIN_RHL,
+  TRIMS_GPIO_PIN_RHR
 };
 
 uint8_t trimDown(uint8_t idx)
@@ -282,7 +266,6 @@ FORCEINLINE void readKeysAndTrims()
   in = (tin & 0x0f) << 3;
   in |= (tin & 0x30) >> 3;
   for (int i=1; i<7; i++) {
-    // INP_B_KEY_MEN 1  .. INP_B_KEY_LFT 6
     keys[enuk].input(in & (1<<i));
     ++enuk;
   }

@@ -38,15 +38,19 @@
 #define audio_h
 
 #include <stddef.h>
-#include "FatFs/ff.h"
+#include "ff.h"
 
-#define AUDIO_FILENAME_MAXLEN (40)
+#define AUDIO_FILENAME_MAXLEN (42)      //max length example: /SOUNDS/fr/123456789012/1234567890-off.wav
 #define AUDIO_QUEUE_LENGTH    (20)
 
 #define AUDIO_SAMPLE_RATE     (32000)
 #define AUDIO_BUFFER_DURATION (10)
 #define AUDIO_BUFFER_SIZE     (AUDIO_SAMPLE_RATE*AUDIO_BUFFER_DURATION/1000)
-#define AUDIO_BUFFER_COUNT    (3)
+#if defined(SIMU_AUDIO)
+  #define AUDIO_BUFFER_COUNT  (10)      // simulator needs more buffers for smooth audio
+#else
+  #define AUDIO_BUFFER_COUNT  (3)
+#endif
 
 #define BEEP_MIN_FREQ         (150)
 #define BEEP_DEFAULT_FREQ     (2250)
@@ -62,6 +66,8 @@ struct AudioBuffer {
   uint16_t size;
   uint8_t  state;
 };
+
+extern AudioBuffer audioBuffers[AUDIO_BUFFER_COUNT];
 
 enum FragmentTypes {
   FRAGMENT_EMPTY,
@@ -155,6 +161,9 @@ bool dacQueue(AudioBuffer *buffer);
 class AudioQueue {
 
   friend void audioTask(void* pdata);
+#if defined(SIMU_AUDIO)
+  friend void *audioThread(void *);
+#endif
 
   public:
 
@@ -190,23 +199,35 @@ class AudioQueue {
 
     inline AudioBuffer * getNextFilledBuffer()
     {
-      if (buffers[bufferRIdx].state == AUDIO_BUFFER_PLAYING) {
-        buffers[bufferRIdx].state = AUDIO_BUFFER_FREE;
+      if (audioBuffers[bufferRIdx].state == AUDIO_BUFFER_PLAYING) {
+        audioBuffers[bufferRIdx].state = AUDIO_BUFFER_FREE;
         bufferRIdx = nextBufferIdx(bufferRIdx);
       }
 
       uint8_t idx = bufferRIdx;
-      while (idx != bufferWIdx) {
-        AudioBuffer * buffer = &buffers[idx];
+      do {
+        AudioBuffer * buffer = &audioBuffers[idx];
         if (buffer->state == AUDIO_BUFFER_FILLED) {
           buffer->state = AUDIO_BUFFER_PLAYING;
           bufferRIdx = idx;
           return buffer;
         }
         idx = nextBufferIdx(idx);
-      }
+      } while (idx != bufferWIdx);   //this fixes a bug if all buffers are filled
 
       return NULL;
+    }
+
+    bool filledAtleast(int noBuffers) {
+      int count = 0;
+      for(int n= 0; n<AUDIO_BUFFER_COUNT; ++n) {
+        if (audioBuffers[n].state == AUDIO_BUFFER_FILLED) {
+          if (++count >= noBuffers) {
+            return true;
+          }
+        }
+      }
+      return false;
     }
 
   protected:
@@ -224,7 +245,6 @@ class AudioQueue {
     ToneContext  priorityContext;
     ToneContext  varioContext;
 
-    AudioBuffer buffers[AUDIO_BUFFER_COUNT];
     uint8_t bufferRIdx;
     uint8_t bufferWIdx;
 
@@ -235,7 +255,7 @@ class AudioQueue {
 
     inline AudioBuffer * getEmptyBuffer()
     {
-      AudioBuffer * buffer = &buffers[bufferWIdx];
+      AudioBuffer * buffer = &audioBuffers[bufferWIdx];
       if (buffer->state == AUDIO_BUFFER_FREE)
         return buffer;
       else
@@ -311,6 +331,8 @@ void audioStart();
 #define AUDIO_RXBATT_RED()       audioEvent(AU_RXBATT_RED)
 #define AUDIO_TELEMETRY_LOST()   audioEvent(AU_TELEMETRY_LOST)
 #define AUDIO_TELEMETRY_BACK()   audioEvent(AU_TELEMETRY_BACK)
+#define AUDIO_TRAINER_LOST()     audioEvent(AU_TRAINER_LOST)
+#define AUDIO_TRAINER_BACK()     audioEvent(AU_TRAINER_BACK)
 
 #define AUDIO_HEARTBEAT()
 
@@ -353,6 +375,7 @@ void pushPrompt(uint16_t prompt, uint8_t id=0);
   #define PLAY_SWITCH_MOVED(sw)         playModelEvent(SWITCH_AUDIO_CATEGORY, sw)
   #define PLAY_LOGICAL_SWITCH_OFF(sw)   playModelEvent(LOGICAL_SWITCH_AUDIO_CATEGORY, sw, AUDIO_EVENT_OFF)
   #define PLAY_LOGICAL_SWITCH_ON(sw)    playModelEvent(LOGICAL_SWITCH_AUDIO_CATEGORY, sw, AUDIO_EVENT_ON)
+  #define PLAY_MODEL_NAME()             playModelName()
   #define START_SILENCE_PERIOD()        timeAutomaticPromptsSilence = get_tmr10ms()
   #define IS_SILENCE_PERIOD_ELAPSED()   (get_tmr10ms()-timeAutomaticPromptsSilence > 50)
 #else
@@ -361,6 +384,7 @@ void pushPrompt(uint16_t prompt, uint8_t id=0);
   #define PLAY_SWITCH_MOVED(sw)
   #define PLAY_LOGICAL_SWITCH_OFF(sw)
   #define PLAY_LOGICAL_SWITCH_ON(sw)
+  #define PLAY_MODEL_NAME()
   #define START_SILENCE_PERIOD()
 #endif
 

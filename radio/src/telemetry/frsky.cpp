@@ -170,6 +170,19 @@ NOINLINE void processSerialData(uint8_t data)
     }
 #endif
 
+#if defined(PCBTARANIS) && defined(REV9E) && !defined(SIMU)
+    #define BLUETOOTH_BUFFER_LENGTH     20
+    static uint8_t bluetoothBuffer[BLUETOOTH_BUFFER_LENGTH];
+    static uint8_t bluetoothIndex = 0;
+    bluetoothBuffer[bluetoothIndex++] = data;
+    if (bluetoothIndex == BLUETOOTH_BUFFER_LENGTH) {
+      if (bluetoothReady()) {
+        bluetoothWrite(bluetoothBuffer, BLUETOOTH_BUFFER_LENGTH);
+      }
+      bluetoothIndex = 0;
+    }
+#endif
+
   switch (dataState)
   {
     case STATE_DATA_START:
@@ -324,7 +337,7 @@ void telemetryWakeup()
 #endif
 
 #if defined(CPUARM)
-  for (int i=0; i<TELEM_VALUES_MAX; i++) {
+  for (int i=0; i<MAX_SENSORS; i++) {
     const TelemetrySensor & sensor = g_model.telemetrySensors[i];
     if (sensor.type == TELEM_TYPE_CALCULATED) {
       telemetryItems[i].eval(sensor);
@@ -338,6 +351,12 @@ void telemetryWakeup()
   }
 #endif
 
+#if defined(PCBTARANIS) && defined(REVPLUS)
+  #define FRSKY_BAD_ANTENNA() (IS_VALID_XJT_VERSION() && frskyData.swr.value > 0x33)
+#else
+  #define FRSKY_BAD_ANTENNA() (frskyData.swr.value > 0x33)
+#endif
+
 #if defined(CPUARM)
   static tmr10ms_t alarmsCheckTime = 0;
   #define SCHEDULE_NEXT_ALARMS_CHECK(seconds) alarmsCheckTime = get_tmr10ms() + (100*(seconds))
@@ -346,17 +365,22 @@ void telemetryWakeup()
     SCHEDULE_NEXT_ALARMS_CHECK(1/*second*/);
 
     uint8_t now = TelemetryItem::now();
-    for (int i=0; i<TELEM_VALUES_MAX; i++) {
+    for (int i=0; i<MAX_SENSORS; i++) {
       if (isTelemetryFieldAvailable(i)) {
         uint8_t lastReceived = telemetryItems[i].lastReceived;
         if (lastReceived < TELEMETRY_VALUE_TIMER_CYCLE && uint8_t(now - lastReceived) > TELEMETRY_VALUE_OLD_THRESHOLD) {
           telemetryItems[i].lastReceived = TELEMETRY_VALUE_OLD;
+          TelemetrySensor * sensor = & g_model.telemetrySensors[i];
+          if (sensor->unit == UNIT_DATETIME) {
+            telemetryItems[i].datetime.datestate = 0;
+            telemetryItems[i].datetime.timestate = 0;
+          }
         }
       }
     }
 
-#if defined(PCBTARANIS) && defined(SWR)
-    if (IS_FRSKY_SPORT_PROTOCOL() && frskyData.swr.value > 0x33) {
+#if defined(PCBTARANIS)
+    if ((g_model.moduleData[INTERNAL_MODULE].rfProtocol != RF_PROTO_OFF || g_model.moduleData[EXTERNAL_MODULE].type == MODULE_TYPE_XJT) && FRSKY_BAD_ANTENNA()) {
       AUDIO_SWR_RED();
       POPUP_WARNING(STR_ANTENNAPROBLEM);
       SCHEDULE_NEXT_ALARMS_CHECK(10/*seconds*/);
@@ -405,7 +429,7 @@ void telemetryInterrupt10ms()
   if (TELEMETRY_STREAMING()) {
     if (!TELEMETRY_OPENXSENSOR()) {
 #if defined(CPUARM)
-      for (int i=0; i<TELEM_VALUES_MAX; i++) {
+      for (int i=0; i<MAX_SENSORS; i++) {
         const TelemetrySensor & sensor = g_model.telemetrySensors[i];
         if (sensor.type == TELEM_TYPE_CALCULATED) {
           telemetryItems[i].per10ms(sensor);
@@ -478,7 +502,7 @@ void telemetryReset()
   memclear(&frskyData, sizeof(frskyData));
 
 #if defined(CPUARM)
-  for (int index=0; index<TELEM_VALUES_MAX; index++) {
+  for (int index=0; index<MAX_SENSORS; index++) {
     telemetryItems[index].clear();
   }
 #endif
@@ -499,9 +523,7 @@ void telemetryReset()
 #if defined(SIMU)
 
 #if defined(CPUARM)
-  #if defined(SWR)
   frskyData.swr.value = 30;
-  #endif
   frskyData.rssi.value = 75;
 #else
   frskyData.rssi[0].value = 75;
@@ -561,13 +583,16 @@ void telemetryReset()
 #endif
 #endif
 
-#if 0
-  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, RSSI_ID, 0, 75, UNIT_RAW, 0);
-  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, T1_FIRST_ID, 0, 100, UNIT_CELSIUS, 0);
-  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, T1_FIRST_ID, 1, 200, UNIT_CELSIUS, 0);
+#if defined(CPUARM) && defined(SIMU) && !defined(COMPANION)
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, RSSI_ID, 25, 75, UNIT_RAW, 0);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, SWR_ID, 25, 5, UNIT_RAW, 0);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, T1_FIRST_ID, 5, 100, UNIT_CELSIUS, 0);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, T1_FIRST_ID+0x10, 5, 200, UNIT_CELSIUS, 0);
   setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, ALT_FIRST_ID, 1, 1000, UNIT_METERS, 2);
-  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, CELLS_FIRST_ID, 1, 0x80280220, UNIT_CELLS, 0);
-  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, CURR_FIRST_ID, 1, 100, UNIT_AMPS, 2);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, CELLS_FIRST_ID, 2, 0x80280220, UNIT_CELLS, 0);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, CURR_FIRST_ID, 3, 100, UNIT_AMPS, 2);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, RPM_FIRST_ID, 5, 3600, UNIT_RPMS, 0);
+  setTelemetryValue(TELEM_PROTO_FRSKY_SPORT, FUEL_QTY_FIRST_ID, 11, 1000, UNIT_MILLILITERS, 2);
 #endif
 }
 

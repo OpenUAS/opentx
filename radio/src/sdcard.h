@@ -34,17 +34,18 @@
  *
  */
 
-#ifndef sdcard_h
-#define sdcard_h
+#ifndef _SDCARD_H_
+#define _SDCARD_H_
 
-#include "FatFs/ff.h"
+#include "ff.h"
 
 #define ROOT_PATH           "/"
-#define MODELS_PATH         ROOT_PATH "MODELS"
-#define LOGS_PATH           ROOT_PATH "LOGS"   // no trailing slash = important
-#define SOUNDS_PATH         ROOT_PATH "SOUNDS/en" // no trailing slash = important
+#define MODELS_PATH         ROOT_PATH "MODELS"      // no trailing slash = important
+#define LOGS_PATH           ROOT_PATH "LOGS"
+#define SCREENSHOTS_PATH    ROOT_PATH "SCREENSHOTS"
+#define SOUNDS_PATH         ROOT_PATH "SOUNDS/en"
 #define SOUNDS_PATH_LNG_OFS (sizeof(SOUNDS_PATH)-3)
-#define SYSTEM_SUBDIR       "SYSTEM" // no trailing slash = important
+#define SYSTEM_SUBDIR       "SYSTEM"
 #define BITMAPS_PATH        ROOT_PATH "BMP"
 #define FIRMWARES_PATH      ROOT_PATH "FIRMWARES"
 #define EEPROMS_PATH        ROOT_PATH "EEPROMS"
@@ -54,7 +55,7 @@
 #define TEMPLATES_PATH      SCRIPTS_PATH "/TEMPLATES"
 #define SCRIPTS_MIXES_PATH  SCRIPTS_PATH "/MIXES"
 #define SCRIPTS_FUNCS_PATH  SCRIPTS_PATH "/FUNCTIONS"
-#define SCRIPTS_TELEM_PATH  SCRIPTS_PATH "/TELEM"
+#define SCRIPTS_TELEM_PATH  SCRIPTS_PATH "/TELEMETRY"
 
 #define MODELS_EXT          ".bin"
 #define LOGS_EXT            ".csv"
@@ -64,14 +65,20 @@
 #define TEXT_EXT            ".txt"
 #define FIRMWARE_EXT        ".bin"
 #define EEPROM_EXT          ".bin"
+#define SPORT_FIRMWARE_EXT  ".frk"
 
 extern FATFS g_FATFS_Obj;
+extern FIL g_oLogFile;
 
 extern uint8_t logDelay;
-extern const pm_char * openLogs();
+const pm_char *openLogs();
 void writeHeader();
-extern void closeLogs();
-extern void writeLogs();
+void closeLogs();
+void writeLogs();
+
+uint32_t sdGetNoSectors();
+uint32_t sdGetSize();
+uint32_t sdGetFreeSectors();
 
 #if !defined(BOOT)
 inline const pm_char *SDCARD_ERROR(FRESULT result)
@@ -90,6 +97,8 @@ inline const pm_char *SDCARD_ERROR(FRESULT result)
 #else
   #define O9X_FOURCC 0x3178396F // o9x for gruvin9x/MEGA2560
 #endif
+
+const char *fileCopy(const char *filename, const char *srcDir, const char *destDir);
 
 #endif
 

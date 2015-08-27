@@ -17,7 +17,7 @@
 #include <iostream>
 #include "th9xinterface.h"
 #include "th9xeeprom.h"
-#include "th9xsimulator.h"
+#include "simulator/th9xsimulator.h"
 #include "file.h"
 #include "appdata.h"
 
@@ -130,12 +130,12 @@ int Th9xInterface::save(uint8_t *eeprom, RadioData &radioData, uint32_t variant,
   return 0;
 }
 
-int Th9xInterface::getSize(ModelData &model)
+int Th9xInterface::getSize(const ModelData & model)
 {
   return 0;
 }
 
-int Th9xInterface::getSize(GeneralSettings &settings)
+int Th9xInterface::getSize(const GeneralSettings & settings)
 {
   return 0;
 }

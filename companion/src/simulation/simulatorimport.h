@@ -14,6 +14,8 @@
  *
  */
 
+#include <stdint.h>
+
 #if !defined(NUM_LOGICAL_SWITCH) && defined(NUM_CSW)
 #define NUM_LOGICAL_SWITCH NUM_CSW
 #endif
@@ -44,7 +46,7 @@ pind = 0;
 if (inputs.rotenc) pind |= 0x20;
 #endif
 
-#ifdef PCBSKY9X
+#if defined(PCBSKY9X)
 if (inputs.rotenc) PIOB->PIO_PDSR &= ~0x40; else PIOB->PIO_PDSR |= 0x40;
 #endif
 
@@ -56,7 +58,8 @@ if (inputs.rotenc) simuSetKey(KEY_ENTER, true);
 #ifdef GETVALUES_IMPORT
 #undef GETVALUES_IMPORT
 memset(outputs.chans, 0, sizeof(outputs.chans));
-memcpy(outputs.chans, g_chans512, sizeof(g_chans512));
+for (unsigned int i=0; i<DIM(g_chans512); i++)
+  outputs.chans[i] = g_chans512[i];
 for (int i=0; i<NUM_LOGICAL_SWITCH; i++)
 #if defined(BOLD_FONT)
   outputs.vsw[i] = getSwitch(SWSRC_SW1+i);
@@ -65,18 +68,20 @@ for (int i=0; i<NUM_LOGICAL_SWITCH; i++)
 #endif
 #ifdef GVAR_VALUE // defined(GVARS)
 /* TODO it could be a good idea instead of getPhase() / getPhaseName() outputs.phase = getFlightMode(); */
+#if defined(GVARS)
 for (int fm=0; fm<MAX_FLIGHT_MODES; fm++) {
   for (int gv=0; gv<MAX_GVARS; gv++) {
     outputs.gvars[fm][gv] = GVAR_VALUE(gv, getGVarFlightPhase(fm, gv));
   }
 }
 #endif
+#endif
 #endif   //GETVALUES_IMPORT
 
 #ifdef LCDCHANGED_IMPORT
 #undef LCDCHANGED_IMPORT
 if (lcd_refresh) {
-  lightEnable = IS_BACKLIGHT_ON();
+  lightEnable = isBacklightEnable();
   lcd_refresh = false;
   return true;
 }
@@ -93,7 +98,7 @@ return true;
 
 #ifdef GETLCD_IMPORT
 #undef GETLCD_IMPORT
-return lcd_buf;
+return (::uint8_t *)lcd_buf;
 #endif
 
 #ifdef GETERROR_IMPORT
@@ -101,4 +106,9 @@ return lcd_buf;
 return main_thread_error;
 #endif
 
+#ifdef SETTRAINER_IMPORT
+#undef SETTRAINER_IMPORT
+  ppmInputValidityTimer = 100;
+  ppmInput[inputNumber] = LIMIT< ::int16_t>(-512, value, 512);
+#endif
 
