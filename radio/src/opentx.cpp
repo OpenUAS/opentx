@@ -1103,8 +1103,10 @@ void checkFailsafe()
 #if defined(CPUARM)
 void checkRSSIAlarmsDisabled()
 {
-  if (g_model.rssiAlarms.disabled) {
-    ALERT(STR_RSSIALARM_WARN, STR_NO_RSSIALARM, AU_ERROR);
+  if (!g_eeGeneral.disableAlarmWarning || !g_eeGeneral.disableRssiPoweroffAlarm) {
+    if (g_model.rssiAlarms.disabled) {
+      ALERT(STR_RSSIALARM_WARN, STR_NO_RSSIALARM, AU_ERROR);
+    }
   }
 }
 #endif
@@ -1277,7 +1279,7 @@ void checkTHR()
   LED_ERROR_END();
 }
 
-void checkAlarm() // added by Gohst
+void checkAlarm()
 {
   if (g_eeGeneral.disableAlarmWarning) {
     return;

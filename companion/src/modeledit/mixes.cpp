@@ -103,8 +103,8 @@ void MixesPanel::AddMixerLine(int dest)
     qba.append((const char*)&md, sizeof(MixData));
     destId = md.destCh;
     const QVector<const MixData *> mixes = model->mixes(md.destCh-1);
-    newChan = (mixes.constFirst() == &md);
-    hasSibs = (mixes.constLast() != &md);
+    newChan = (mixes.first() == &md);
+    hasSibs = (mixes.last() != &md);
   }
   QListWidgetItem *itm = new QListWidgetItem(getMixerText(dest, newChan));
   itm->setData(Qt::UserRole, qba);
