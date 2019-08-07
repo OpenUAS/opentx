@@ -109,8 +109,8 @@ void InputsPanel::AddInputLine(int dest)
     qba.append((const char*)&md, sizeof(ExpoData));
     destId = md.chn + 1;
     const QVector<const ExpoData *> expos = model->expos(md.chn);
-    newChan = (expos.constFirst() == &md);
-    hasSibs = (expos.constLast() != &md);
+    newChan = (expos.first() == &md);
+    hasSibs = (expos.last() != &md);
   }
   QListWidgetItem *itm = new QListWidgetItem(getInputText(dest, newChan));
   itm->setData(Qt::UserRole, qba);
